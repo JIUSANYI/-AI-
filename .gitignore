@@ -1,0 +1,29 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Go
+bin/
+dist/
+vendor/
+
+# Runtime and generated files
+*.log
+uploads/
+
+# IDE / local workspace
+.idea/
+.vscode/
+.obsidian/
+
+# Local reports and coverage
+coverage/
+tmp/
+
