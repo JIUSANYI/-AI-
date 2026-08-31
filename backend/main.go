@@ -98,6 +98,11 @@ func main() {
 		rdb = redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPass, DB: redisDB})
 		defer rdb.Close()
 	}
+	auth, err := newAuthService(cfg, db, rdb)
+	if err != nil && cfg.RequireDeps {
+		slog.Error("authentication configuration error", "error", err)
+		os.Exit(1)
+	}
 
 	router := gin.New()
 	router.Use(requestID(), gin.Recovery(), accessLog())
@@ -107,6 +112,9 @@ func main() {
 	api := router.Group("/api/v1")
 	api.GET("/health", healthHandler)
 	api.GET("/ready", readyHandler(db, rdb, cfg.RequireDeps))
+	if auth != nil {
+		auth.registerRoutes(api)
+	}
 
 	server := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
@@ -247,9 +255,11 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("begin migration %s: %w", name, err)
 		}
-		if _, err = tx.ExecContext(ctx, string(script)); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("apply migration %s: %w", name, err)
+		for _, statement := range splitSQLStatements(string(script)) {
+			if _, err = tx.ExecContext(ctx, statement); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("apply migration %s: %w", name, err)
+			}
 		}
 		if _, err = tx.ExecContext(ctx, "INSERT INTO schema_migrations(version) VALUES (?)", name); err != nil {
 			_ = tx.Rollback()
@@ -261,4 +271,15 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 		slog.Info("migration applied", "version", name)
 	}
 	return nil
+}
+
+func splitSQLStatements(script string) []string {
+	parts := strings.Split(script, ";")
+	statements := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if statement := strings.TrimSpace(part); statement != "" {
+			statements = append(statements, statement)
+		}
+	}
+	return statements
 }
