@@ -1,0 +1,114 @@
+name: CI/CD
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache-dependency-path: backend/go.sum
+      - name: Check formatting
+        shell: bash
+        run: test -z "$(gofmt -l .)"
+      - name: Test
+        run: go test ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Vulnerability scan (informational)
+        uses: govulncheck-action/govulncheck-action@v1
+        continue-on-error: true
+        with:
+          go-version-input: '1.22.x'
+          go-package: './...'
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - name: Dependency audit (informational)
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+  compose:
+    name: Compose validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Provide non-production config for validation
+        shell: bash
+        run: cp backend/.env.example backend/.env
+      - name: Validate development Compose
+        run: docker compose -f deploy/docker-compose.dev.yml config
+      - name: Validate production Compose
+        run: docker compose -f deploy/docker-compose.yml config
+
+  deploy:
+    name: Deploy to Tencent Cloud
+    needs: [backend, frontend, compose]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+    steps:
+      - name: Install SSH key
+        shell: bash
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_SSH_KEY"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/deploy_key"
+          chmod 600 "$RUNNER_TEMP/deploy_key"
+          ssh-keyscan -p "${DEPLOY_PORT:-22}" -H "$DEPLOY_HOST" >> "$RUNNER_TEMP/known_hosts"
+      - name: Pull, rebuild and smoke test
+        shell: bash
+        run: |
+          ssh -i "$RUNNER_TEMP/deploy_key" \
+            -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o BatchMode=yes \
+            -p "${DEPLOY_PORT:-22}" "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /home/ubuntu/cs-qa-platform
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+          test -f backend/.env
+          docker compose -f deploy/docker-compose.yml config >/dev/null
+          docker compose -f deploy/docker-compose.yml build
+          docker compose -f deploy/docker-compose.yml up -d --remove-orphans
+          curl --fail --retry 10 --retry-delay 3 http://127.0.0.1/api/v1/health
+          curl --fail --retry 10 --retry-delay 3 http://127.0.0.1/api/v1/ready
+          REMOTE
