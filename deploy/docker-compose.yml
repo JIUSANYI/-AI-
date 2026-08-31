@@ -1,0 +1,48 @@
+services:
+  nginx:
+    image: nginx:1.24-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - frontend
+      - backend
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+  frontend:
+    build:
+      context: ../frontend
+    expose:
+      - "3000"
+    mem_limit: 384m
+  backend:
+    build:
+      context: ../backend
+    expose:
+      - "8080"
+    env_file:
+      - ../backend/.env
+    depends_on:
+      - mysql
+      - redis
+    mem_limit: 128m
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: csqa
+      MYSQL_USER: csqa
+      MYSQL_PASSWORD: change-me
+      MYSQL_ROOT_PASSWORD: change-me
+    volumes:
+      - mysql_data:/var/lib/mysql
+    mem_limit: 640m
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    mem_limit: 128m
+
+volumes:
+  mysql_data:
+  redis_data:
