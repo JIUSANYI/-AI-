@@ -102,7 +102,7 @@ docker compose config
 
 ## GitHub Actions CI/CD
 
-`.github/workflows/ci.yml` 会在 Pull Request 和推送到 `main` 时自动执行后端格式/测试/静态检查、前端 lint/build 以及 Docker Compose 配置校验。依赖漏洞扫描目前只做提示，不会因已有依赖风险阻断构建；升级依赖前需单独评估兼容性。
+`.github/workflows/ci.yml` 会在 Pull Request 和推送到 `main`/`develop` 时自动执行后端格式/测试/静态检查以及 Docker Compose 配置校验。当前开发范围仅限后端；前端作为独立运行依赖保留，不由本阶段 CI/CD 修改或重新构建。Go 依赖漏洞扫描目前只做提示；升级依赖前需单独评估兼容性。
 
 推送到 `develop` 会在 `test` Environment 中部署测试环境；推送到 `main` 会在 `production` Environment 中部署正式环境。两者都要求仓库变量 `DEPLOY_ENABLED=true`，正式环境还应配置必需的人工审批。部署前述 CI 检查必须全部通过，并需要在对应 GitHub Environment Secrets 中配置：
 

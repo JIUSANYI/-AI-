@@ -16,6 +16,10 @@
 
 若实现需要偏离这些文档，先说明影响并同步修订相关文档；不要默默改变产品范围或核心架构。
 
+## 1.1 当前执行范围：仅后端
+
+当前阶段只开发和维护 `backend/`。前端目录、页面、样式、Node 依赖和前端业务逻辑均视为隔离范围，未经用户再次明确授权不得修改、重构或审查实现细节。部署时前端容器可以作为独立运行依赖继续存在，但后端发布不得重新构建或替换前端镜像。
+
 ## 2. 一期边界
 
 必须完成：
@@ -165,11 +169,11 @@ deploy/
 
 - 后端：`gofmt`、`go test ./...`、`go vet ./...`
 - 后端安全：`govulncheck ./...`（工具可用时）
-- 前端：`npm run lint`、`npm run build`、`npm audit`
+- 前端：当前阶段不执行前端代码检查；前端由独立负责人/流程维护
 - 浏览器：使用 Playwright CLI 冒烟验证登录、提问、历史和详情；失败产物写入 `output/playwright/`
 - 部署：`docker compose config`；可用时执行健康检查和关键链路冒烟测试
 
-自动检查由 `.github/workflows/ci.yml` 执行。Pull Request 必须通过后才能合并；`develop` 部署测试环境，`main` 部署正式环境，正式部署必须经过 GitHub `production` Environment 审批。工作流不得保存或回退服务器密码，服务器登录统一使用 GitHub Secret 中的 SSH 私钥。
+自动检查由 `.github/workflows/ci.yml` 执行。当前工作流只检查后端；Pull Request 必须通过后才能合并；`develop` 部署测试环境，`main` 部署正式环境，正式部署必须经过 GitHub `production` Environment 审批。工作流不得保存或回退服务器密码，服务器登录统一使用 GitHub Secret 中的 SSH 私钥。
 
 重点测试纯逻辑：JWT 签发/校验、审核异常时的默认拒绝降级、URL/media_type 判定、SSRF 拦截、验证码过期/复用/限频、用户越权访问。
 
