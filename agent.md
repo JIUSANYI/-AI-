@@ -36,7 +36,7 @@
 - 前端：Node.js 22 LTS、Next.js 14 LTS App Router、TypeScript 5 strict
 - 前端依赖：Tailwind CSS、SWR、`react-markdown`、`remark-gfm`
 - 后端依赖：`sqlx`、MySQL driver、`go-redis/v9`、`golang-jwt/v5`、腾讯云 SDK、七牛云 SDK；优先使用标准库
-- 部署：Nginx 1.24 + Docker Compose，服务为 nginx/frontend/backend/mysql/redis
+- 部署：Nginx 1.24 + Docker Compose，服务器隔离测试（8081）与正式（80/443）环境，服务为 nginx/frontend/backend/mysql/redis
 - LLM：自写 OpenAI 兼容 HTTP 客户端，不引入 OpenAI SDK；Base URL、Key、Model 均配置化
 - 外部服务开发期默认 Mock：SMS 和内容审核不应阻塞本地开发
 
@@ -169,7 +169,7 @@ deploy/
 - 浏览器：使用 Playwright CLI 冒烟验证登录、提问、历史和详情；失败产物写入 `output/playwright/`
 - 部署：`docker compose config`；可用时执行健康检查和关键链路冒烟测试
 
-自动检查由 `.github/workflows/ci.yml` 执行。Pull Request 必须通过后才能合并；`main` 的自动部署仅在 CI 全部通过且部署 Secrets 已配置时运行。工作流不得保存或回退服务器密码，服务器登录统一使用 GitHub Secret 中的 SSH 私钥。
+自动检查由 `.github/workflows/ci.yml` 执行。Pull Request 必须通过后才能合并；`develop` 部署测试环境，`main` 部署正式环境，正式部署必须经过 GitHub `production` Environment 审批。工作流不得保存或回退服务器密码，服务器登录统一使用 GitHub Secret 中的 SSH 私钥。
 
 重点测试纯逻辑：JWT 签发/校验、审核异常时的默认拒绝降级、URL/media_type 判定、SSRF 拦截、验证码过期/复用/限频、用户越权访问。
 

@@ -1,11 +1,10 @@
-name: csqa-prod
+name: csqa-test
 
 services:
   nginx:
     image: nginx:1.24-alpine
     ports:
-      - "80:80"
-      - "443:443"
+      - "8081:80"
     depends_on:
       - frontend
       - backend
@@ -23,7 +22,7 @@ services:
     expose:
       - "8080"
     env_file:
-      - ../backend/.env.prod
+      - ../backend/.env.test
     depends_on:
       - mysql
       - redis
@@ -36,15 +35,15 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
     volumes:
-      - mysql_data:/var/lib/mysql
+      - mysql_test_data:/var/lib/mysql
     mem_limit: 640m
   redis:
     image: redis:7-alpine
     command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
     volumes:
-      - redis_data:/data
+      - redis_test_data:/data
     mem_limit: 128m
 
 volumes:
-  mysql_data:
-  redis_data:
+  mysql_test_data:
+  redis_test_data:

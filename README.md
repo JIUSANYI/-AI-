@@ -7,7 +7,7 @@
 - 一期状态：文档基线已完成，进入 M1 项目骨架开发
 - 目标用户：计算机专业学生、在职开发者、计算机爱好者
 - 目标规模：约 10 个注册用户，一期不要求并发和实时输出
-- 部署方式：Docker Compose 单机部署
+- 部署方式：Docker Compose 单机双环境部署（test / production）
 - 默认分支：`main`
 
 ## 文档入口
@@ -104,14 +104,14 @@ docker compose config
 
 `.github/workflows/ci.yml` 会在 Pull Request 和推送到 `main` 时自动执行后端格式/测试/静态检查、前端 lint/build 以及 Docker Compose 配置校验。依赖漏洞扫描目前只做提示，不会因已有依赖风险阻断构建；升级依赖前需单独评估兼容性。
 
-推送到 `main` 后，只有仓库变量 `DEPLOY_ENABLED=true` 时才会继续自动部署。部署前述 CI 检查必须全部通过，并需要在 GitHub Actions Secrets 中配置：
+推送到 `develop` 会在 `test` Environment 中部署测试环境；推送到 `main` 会在 `production` Environment 中部署正式环境。两者都要求仓库变量 `DEPLOY_ENABLED=true`，正式环境还应配置必需的人工审批。部署前述 CI 检查必须全部通过，并需要在对应 GitHub Environment Secrets 中配置：
 
 - `DEPLOY_HOST`：服务器地址
 - `DEPLOY_USER`：SSH 用户名
 - `DEPLOY_PORT`：可选，默认 `22`
 - `DEPLOY_SSH_KEY`：对应服务器公钥的 SSH 私钥，多行原文保存
 
-服务器目录默认是 `/home/ubuntu/cs-qa-platform`，并且必须预先配置好生产环境的 `backend/.env`。工作流使用 `git pull --ff-only`，部署失败不会自动改写服务器上的本地提交或工作区。
+服务器目录分别是 `/home/ubuntu/cs-qa-platform-test` 和 `/home/ubuntu/cs-qa-platform-prod`，并且必须预先配置好 `backend/.env.test` 与 `backend/.env.prod`。工作流使用 `git pull --ff-only`，部署失败不会自动改写服务器上的本地提交或工作区。
 
 ## Git 约定
 

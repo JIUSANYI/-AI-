@@ -2,6 +2,8 @@
 .env
 .env.local
 .env.*.local
+.env.test
+.env.prod
 
 # Node / Next.js
 node_modules/
