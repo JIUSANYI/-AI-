@@ -1,5 +1,7 @@
 FROM golang:1.22-alpine AS build
 WORKDIR /src
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=$GOPROXY
 COPY go.mod go.sum* ./
 RUN go mod download
 COPY . .
@@ -12,4 +14,3 @@ COPY --from=build /out/cs-qa-api /app/cs-qa-api
 USER app
 EXPOSE 8080
 ENTRYPOINT ["/app/cs-qa-api"]
-
