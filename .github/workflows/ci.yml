@@ -37,7 +37,7 @@ jobs:
         continue-on-error: true
         with:
           go-version-input: '1.22.x'
-          go-package: './...'
+          go-package: './backend/...'
 
   frontend:
     name: Frontend checks
