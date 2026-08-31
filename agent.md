@@ -12,6 +12,7 @@
 - `cs-qa-platform-设计方案.md`：如何组织架构、数据和 API
 - `cs-qa-platform-技术栈文档.md`：使用什么技术、如何管理依赖和 Git
 - `cs-qa-platform-UI设计文档.md`：页面视觉、交互和文案规范
+- `接口文档.md`：前后端联调契约、字段与错误码
 
 若实现需要偏离这些文档，先说明影响并同步修订相关文档；不要默默改变产品范围或核心架构。
 
@@ -151,7 +152,9 @@ deploy/
 提交前至少执行并修复结果：
 
 - 后端：`gofmt`、`go test ./...`、`go vet ./...`
-- 前端：`npm run lint`、`npm run build`
+- 后端安全：`govulncheck ./...`（工具可用时）
+- 前端：`npm run lint`、`npm run build`、`npm audit`
+- 浏览器：使用 Playwright CLI 冒烟验证登录、提问、历史和详情；失败产物写入 `output/playwright/`
 - 部署：`docker compose config`；可用时执行健康检查和关键链路冒烟测试
 
 重点测试纯逻辑：JWT 签发/校验、审核异常时的默认拒绝降级、URL/media_type 判定、SSRF 拦截、验证码过期/复用/限频、用户越权访问。
@@ -164,3 +167,11 @@ deploy/
 
 每次完成后报告：改动文件、实现的业务规则、验证命令及结果、已知风险或未完成项。若文档存在冲突、外部凭证缺失或操作会扩大范围，暂停相关实现并说明原因；可用 Mock/降级继续推进的，不应被凭证阻塞。
 
+### 可用技能
+
+- `playwright`：真实浏览器联调、页面状态检查、截图和 trace。
+- `security-best-practices`：Go、Next.js 和 React 的安全基线检查。
+- `security-threat-model`：在明确要求威胁建模时，梳理资产、边界、攻击路径和缓解措施。
+- `screenshot`：浏览器工具无法覆盖时进行系统级截图；优先使用 Playwright 自带截图。
+
+技能用于加强验证，不能替代项目文档。技能建议与已确认架构冲突时，应说明差异并先更新文档。

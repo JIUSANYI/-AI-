@@ -3,10 +3,10 @@
 | 文档属性 | 内容 |
 |---|---|
 | 项目名称 | cs-qa-platform |
-| 文档版本 | v1.0 |
-| 编写日期 | 2026-08-30 |
-| 文档状态 | 待评审 |
-| 关联文档 | 《需求分析文档》《设计方案》（同目录） |
+| 文档版本 | v1.1 |
+| 编写日期 | 2026-08-30（2026-08-31 修订） |
+| 文档状态 | 已确认，实施中 |
+| 关联文档 | 《需求分析文档》《设计方案》《技术栈文档》《接口文档》 |
 | 适用范围 | 一期全部前端页面（Next.js App Router） |
 
 ---
@@ -328,6 +328,13 @@
 | 网格底纹 | `background-image` 双 `linear-gradient` 画 12px 网格，颜色 `grid-line`，`background-attachment: fixed` 不用（移动端抖动） |
 | 焦点环 | 全局 `:focus-visible { outline: 2px solid var(--circuit); outline-offset: 2px }` |
 | 组件归属 | REPL 提问窗、LinkCard、MarkdownView 放 `src/components/`，均为客户端组件；讲义正文渲染放服务端（减少客户端 JS） |
+
+### 11.1 视觉验收
+
+- 使用 Playwright 在桌面端（≥ 1280px）和移动端（390px）检查登录、提问、等待、回答、历史空态及错误态。
+- 每次关键交互后重新获取页面状态；出现布局或交互问题时保存 screenshot 和 trace 到 `output/playwright/`。
+- 视觉检查重点：720px 阅读列、56px 顶栏、移动端单列、代码块横向滚动、键盘焦点、减弱动态模式和媒体卡片展开。
+- Markdown 渲染不得启用原始 HTML；外部链接仅允许 `http`/`https`，新标签页必须带 `noopener noreferrer`。
 
 ---
 

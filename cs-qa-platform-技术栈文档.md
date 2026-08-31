@@ -3,10 +3,10 @@
 | 文档属性 | 内容 |
 |---|---|
 | 项目名称 | cs-qa-platform |
-| 文档版本 | v1.0 |
-| 编写日期 | 2026-08-30 |
-| 文档状态 | 待评审 |
-| 关联文档 | 《需求分析文档》《设计方案》《UI 设计文档》（同目录） |
+| 文档版本 | v1.1 |
+| 编写日期 | 2026-08-30（2026-08-31 修订） |
+| 文档状态 | 已确认，实施中 |
+| 关联文档 | 《需求分析文档》《设计方案》《UI 设计文档》《接口文档》 |
 | 开发模式 | **独立开发**（1 人 + AI 编程助手） |
 
 ---
@@ -65,14 +65,14 @@
 
 | 项 | 约定 |
 |---|---|
-| API 风格 | REST + JSON，统一前缀 `/api/v1`，统一响应包络 `{code, message, data}` |
+| API 风格 | REST + JSON，统一前缀 `/api/v1`；成功返回 `{data, request_id}`，失败返回 `{error: {code, message}, request_id}` |
 | 分层 | handler（绑定/校验）→ service（业务）→ repo（SQL），单向依赖 |
 | 错误处理 | 自建 `errs` 类型化错误（Code + HTTPStatus + Message），handler 统一渲染 |
 | 迁移 | 版本化 SQL 文件 `go:embed` 进二进制，启动时自动执行 + `schema_migrations` 表记录 |
 | LLM 调用 | 不用任何 OpenAI SDK，自写 ~150 行 OpenAI 兼容协议 HTTP 客户端（标准库即可完成），换厂商零成本 |
 | 链接抓取 | 标准库 `net/http` + `golang.org/x/net/html` 解析 og/meta；自实现 SSRF 内网地址拦截 |
-| 测试 | 只写三处：token 签发校验、审核降级逻辑、链接 media_type 判定——都是纯函数，`testify` 可选 |
-| 静态检查 | `go vet`（内置）+ `golangci-lint`（仅启用 errcheck / staticcheck / govet 三条规则，避免噪音） |
+| 测试 | 优先覆盖 token、验证码、审核降级、SSRF、越权和 media_type 判定；HTTP 关键路径使用 `httptest` |
+| 静态与安全检查 | `go vet` + `golangci-lint`（errcheck/staticcheck/govet）+ `govulncheck ./...` |
 
 ---
 
@@ -103,7 +103,8 @@
 | 请求层 | 自写 `lib/api.ts`（~100 行）：fetch 封装 + 自动附带访问令牌 + 401 时单次刷新重试 |
 | 认证态 | 访问令牌存内存模块级变量 + `AuthContext`；刷新令牌 httpOnly Cookie 由后端管理 |
 | 字体 | `next/font/local` 自托管三个字体（Noto Sans SC / 霞鹜文楷子集化 / JetBrains Mono），禁外部 CDN |
-| Lint | ESLint（`next/core-web-vitals` 预设）+ Prettier，仅默认规则不加花 |
+| Lint 与安全 | ESLint（`next/core-web-vitals`）+ Prettier + `npm audit`；CI 使用 `npm ci` 保证可复现安装 |
+| 浏览器验收 | 使用 Playwright CLI 验证登录、提问、历史、详情和响应式布局；失败产物写入 `output/playwright/` |
 
 ---
 
@@ -211,7 +212,7 @@ Thumbs.db
 | Next.js 大版本升级破坏 App Router 用法 | 锁 14 LTS 不动；项目页面少（4 个），真要升级迁移面小 |
 | 霞鹜文楷子集化流程踩坑 | 备选方案：回退 Noto Sans SC（仅正文观感降级，无功能损失） |
 | 腾讯云 SDK 体积大、API 变动 | SMS/天御调用收敛到独立包内薄封装，Mock 模式常开，SDK 升级只动一处 |
-| 单人断更/弃坑风险 | 三份文档 + Conventional Commits + 简洁分层，任何时点可被 AI 或未来的自己接续 |
+| 单人断更/弃坑风险 | 六份核心文档 + Conventional Commits + 简洁分层，任何时点可被 AI 或未来的自己接续 |
 | 2C2G 内存溢出 | 每容器 mem_limit + swap；MySQL 连接池 10；Next standalone；Go 天然省内存 |
 
 ---
