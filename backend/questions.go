@@ -45,14 +45,23 @@ func (mockModeration) Check(_ context.Context, content string) (bool, error) {
 
 func newQuestionService(db *sql.DB) (*questionService, error) {
 	provider := getenv("LLM_PROVIDER", "mock")
-	if provider != "mock" {
-		return nil, errors.New("only LLM_PROVIDER=mock is implemented")
+	var llm llmClient
+	if provider == "mock" {
+		llm = mockLLM{}
+	} else if provider == "openai_compatible" {
+		client, err := newOpenAIClient()
+		if err != nil {
+			return nil, err
+		}
+		llm = client
+	} else {
+		return nil, errors.New("LLM_PROVIDER must be mock or openai_compatible")
 	}
 	moderation := getenv("MODERATION_PROVIDER", "mock")
 	if moderation != "mock" {
 		return nil, errors.New("only MODERATION_PROVIDER=mock is implemented")
 	}
-	return &questionService{db: db, llm: mockLLM{}, moderate: mockModeration{}}, nil
+	return &questionService{db: db, llm: llm, moderate: mockModeration{}}, nil
 }
 
 func (s *questionService) registerRoutes(api *gin.RouterGroup, auth *authService) {
