@@ -111,6 +111,11 @@ func (s *questionService) create(c *gin.Context) {
 		return
 	}
 	if !allowed {
+		_, saveErr := s.db.ExecContext(ctx, "INSERT INTO questions(user_id, content, status, rejection_reason) VALUES (?, ?, 'rejected', 'policy')", userID, req.Content)
+		if saveErr != nil {
+			writeError(c, http.StatusInternalServerError, "QUESTION_SAVE_FAILED", "问题保存失败，请稍后重试")
+			return
+		}
 		writeError(c, http.StatusBadRequest, "CONTENT_REJECTED", "这个问题未通过内容审核，无法回答。")
 		return
 	}
@@ -127,12 +132,27 @@ func (s *questionService) create(c *gin.Context) {
 	started := time.Now()
 	answer, model, err := s.llm.Answer(ctx, req.Content)
 	if err != nil {
-		_, _ = s.db.ExecContext(ctx, "UPDATE questions SET status='failed' WHERE id=? AND user_id=?", questionID, userID)
+		s.markQuestionStatus(questionID, userID, "failed", nil)
 		writeError(c, http.StatusBadGateway, "LLM_UNAVAILABLE", "这个问题没有编译成功。网络或模型暂时不可用，请重试。")
 		return
 	}
+	answerAllowed, err := s.moderate.Check(ctx, answer)
+	if err != nil {
+		reason := "moderation_unavailable"
+		s.markQuestionStatus(questionID, userID, "failed", &reason)
+		writeError(c, http.StatusBadGateway, "MODERATION_UNAVAILABLE", "内容审核服务暂时不可用，请稍后再试")
+		return
+	}
+	if !answerAllowed {
+		reason := "policy"
+		s.markQuestionStatus(questionID, userID, "rejected", &reason)
+		writeError(c, http.StatusBadRequest, "CONTENT_REJECTED", "这个问题未通过内容审核，无法回答。")
+		return
+	}
+	linkCards := enrichLinkCards(ctx, buildLinkCards(answer))
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		s.markQuestionStatus(questionID, userID, "failed", nil)
 		writeError(c, http.StatusInternalServerError, "QUESTION_SAVE_FAILED", "问题保存失败，请稍后重试")
 		return
 	}
@@ -140,8 +160,7 @@ func (s *questionService) create(c *gin.Context) {
 	if answerResult, insertErr := tx.ExecContext(ctx, "INSERT INTO answers(question_id, content, model, duration_ms) VALUES (?, ?, ?, ?)", questionID, answer, model, time.Since(started).Milliseconds()); insertErr != nil {
 		err = insertErr
 	} else if answerID, err = answerResult.LastInsertId(); err == nil {
-		for _, card := range buildLinkCards(answer) {
-			card = fetchLinkMetadata(ctx, card)
+		for _, card := range linkCards {
 			_, err = tx.ExecContext(ctx, "INSERT INTO link_cards(answer_id, url, title, description, image_url, media_type, position, site_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", answerID, card.URL, card.Title, card.Description, card.ImageURL, card.MediaType, card.Position, card.SiteName)
 			if err != nil {
 				break
@@ -153,10 +172,12 @@ func (s *questionService) create(c *gin.Context) {
 	}
 	if err != nil {
 		_ = tx.Rollback()
+		s.markQuestionStatus(questionID, userID, "failed", nil)
 		writeError(c, http.StatusInternalServerError, "QUESTION_SAVE_FAILED", "问题保存失败，请稍后重试")
 		return
 	}
 	if err = tx.Commit(); err != nil {
+		s.markQuestionStatus(questionID, userID, "failed", nil)
 		writeError(c, http.StatusInternalServerError, "QUESTION_SAVE_FAILED", "问题保存失败，请稍后重试")
 		return
 	}
@@ -166,6 +187,12 @@ func (s *questionService) create(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": q, "request_id": c.GetString("request_id")})
+}
+
+func (s *questionService) markQuestionStatus(questionID, userID int64, status string, reason *string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, _ = s.db.ExecContext(ctx, "UPDATE questions SET status=?, rejection_reason=? WHERE id=? AND user_id=?", status, reason, questionID, userID)
 }
 
 func (s *questionService) list(c *gin.Context) {
@@ -202,6 +229,7 @@ func (s *questionService) list(c *gin.Context) {
 			writeError(c, http.StatusInternalServerError, "QUESTION_QUERY_FAILED", "问题查询失败，请稍后再试")
 			return
 		}
+		content = visibleQuestionContent(content, status)
 		items = append(items, gin.H{"id": id, "content": content, "status": status, "rejection_reason": nullable(reason), "created_at": created.Format(time.RFC3339Nano)})
 	}
 	if err = rows.Err(); err != nil {
@@ -245,6 +273,7 @@ func (s *questionService) getQuestion(ctx context.Context, userID, id int64) (gi
 	if err != nil {
 		return nil, err
 	}
+	content = visibleQuestionContent(content, status)
 	q := gin.H{"id": id, "content": content, "status": status, "rejection_reason": nullable(reason), "created_at": created.Format(time.RFC3339Nano), "answer": nil}
 	if status == "answered" {
 		var answer, model string
@@ -290,6 +319,14 @@ func nullable(value interface{}) interface{} {
 	}
 	return nil
 }
+
+func visibleQuestionContent(content, status string) string {
+	if status == "rejected" {
+		return "……"
+	}
+	return content
+}
+
 func pageParams(c *gin.Context) (int, int, error) {
 	page, size := 1, 20
 	var err error

@@ -37,6 +37,21 @@ func TestHashTokenIsDeterministicAndNonEmpty(t *testing.T) {
 	}
 }
 
+func TestSecondsUntilNextDay(t *testing.T) {
+	zone := time.FixedZone("Asia/Shanghai", 8*60*60)
+	now := time.Date(2026, 9, 1, 23, 59, 30, 0, zone)
+	if got := secondsUntilNextDay(now); got != 30 {
+		t.Fatalf("secondsUntilNextDay() = %d, want 30", got)
+	}
+}
+
+func TestSplitCommaSeparated(t *testing.T) {
+	got := splitCommaSeparated("127.0.0.1, 172.16.0.0/12, ")
+	if len(got) != 2 || got[0] != "127.0.0.1" || got[1] != "172.16.0.0/12" {
+		t.Fatalf("splitCommaSeparated() = %#v", got)
+	}
+}
+
 func TestRequireAccessToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := &authService{jwtSecret: []byte("01234567890123456789012345678901"), accessTTL: time.Minute}

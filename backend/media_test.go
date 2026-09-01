@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"net"
+	"strings"
+	"testing"
+)
 
 func TestMediaType(t *testing.T) {
 	for _, test := range []struct{ url, want string }{
@@ -27,5 +31,37 @@ func TestExtractURLsLimitsToFive(t *testing.T) {
 	content := "https://example.com/1 https://example.com/2 https://example.com/3 https://example.com/4 https://example.com/5 https://example.com/6"
 	if got := len(extractURLs(content)); got != maxLinkCards {
 		t.Fatalf("got %d URLs, want %d", got, maxLinkCards)
+	}
+}
+
+func TestIsPublicIPRejectsReservedNetworks(t *testing.T) {
+	for _, raw := range []string{"127.0.0.1", "10.0.0.1", "100.64.0.1", "169.254.169.254", "192.0.2.1", "198.18.0.1", "2001:db8::1"} {
+		if isPublicIP(net.ParseIP(raw)) {
+			t.Errorf("isPublicIP(%q) = true, want false", raw)
+		}
+	}
+	for _, raw := range []string{"1.1.1.1", "2606:4700:4700::1111"} {
+		if !isPublicIP(net.ParseIP(raw)) {
+			t.Errorf("isPublicIP(%q) = false, want true", raw)
+		}
+	}
+}
+
+func TestParseMetadataIgnoresAttributeOrder(t *testing.T) {
+	metadata := parseMetadata(strings.NewReader(`<html><head><title>Fallback</title><meta content="Summary" name="description"><meta content="https://example.com/a.png" property="og:image"><meta content="Site" property="og:site_name"></head></html>`))
+	if metadata.title != "Fallback" || metadata.description != "Summary" || metadata.image == "" || metadata.siteName != "Site" {
+		t.Fatalf("metadata = %+v", metadata)
+	}
+}
+
+func TestTruncateRunes(t *testing.T) {
+	if got := truncateRunes("计算机平台", 3); got != "计算机" {
+		t.Fatalf("truncateRunes() = %q", got)
+	}
+}
+
+func TestTruncateRunesKeepsShortValue(t *testing.T) {
+	if got := truncateRunes("short", 10); got != "short" {
+		t.Fatalf("truncateRunes() = %q", got)
 	}
 }

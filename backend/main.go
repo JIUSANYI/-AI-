@@ -25,24 +25,26 @@ import (
 var migrationFiles embed.FS
 
 type config struct {
-	AppEnv      string
-	HTTPPort    string
-	MySQLDSN    string
-	RedisAddr   string
-	RedisPass   string
-	RedisDB     string
-	RequireDeps bool
+	AppEnv         string
+	HTTPPort       string
+	MySQLDSN       string
+	RedisAddr      string
+	RedisPass      string
+	RedisDB        string
+	TrustedProxies []string
+	RequireDeps    bool
 }
 
 func loadConfig() (config, error) {
 	cfg := config{
-		AppEnv:      getenv("APP_ENV", "dev"),
-		HTTPPort:    getenv("HTTP_PORT", "8080"),
-		MySQLDSN:    os.Getenv("MYSQL_DSN"),
-		RedisAddr:   getenv("REDIS_ADDR", "redis:6379"),
-		RedisPass:   os.Getenv("REDIS_PASSWORD"),
-		RedisDB:     getenv("REDIS_DB", "0"),
-		RequireDeps: getenv("REQUIRE_DEPS", "true") == "true",
+		AppEnv:         getenv("APP_ENV", "dev"),
+		HTTPPort:       getenv("HTTP_PORT", "8080"),
+		MySQLDSN:       os.Getenv("MYSQL_DSN"),
+		RedisAddr:      getenv("REDIS_ADDR", "redis:6379"),
+		RedisPass:      os.Getenv("REDIS_PASSWORD"),
+		RedisDB:        getenv("REDIS_DB", "0"),
+		TrustedProxies: splitCommaSeparated(os.Getenv("TRUSTED_PROXIES")),
+		RequireDeps:    getenv("REQUIRE_DEPS", "true") == "true",
 	}
 	if cfg.HTTPPort == "" {
 		return config{}, errors.New("HTTP_PORT must not be empty")
@@ -55,6 +57,16 @@ func loadConfig() (config, error) {
 		return config{}, errors.New("REDIS_DB must be a non-negative integer")
 	}
 	return cfg, nil
+}
+
+func splitCommaSeparated(value string) []string {
+	items := make([]string, 0)
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 func getenv(key, fallback string) string {
@@ -105,6 +117,10 @@ func main() {
 	}
 
 	router := gin.New()
+	if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		slog.Error("trusted proxy configuration error", "error", err)
+		os.Exit(1)
+	}
 	router.Use(requestID(), gin.Recovery(), accessLog())
 	router.GET("/health", healthHandler)
 	router.GET("/ready", readyHandler(db, rdb, cfg.RequireDeps))

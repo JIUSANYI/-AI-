@@ -48,6 +48,9 @@ type smsCodeRequest struct {
 }
 
 func newAuthService(cfg config, db *sql.DB, rdb *redis.Client) (*authService, error) {
+	if provider := getenv("SMS_PROVIDER", "mock"); provider != "mock" {
+		return nil, errors.New("only SMS_PROVIDER=mock is implemented")
+	}
 	secret := getenv("JWT_SECRET", "")
 	if len(secret) < 32 {
 		return nil, errors.New("JWT_SECRET must contain at least 32 characters")
@@ -138,23 +141,45 @@ func (s *authService) sendSMSCode(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 	defer cancel()
 	key := "sms:login:" + req.Phone
-	if exists, err := s.rdb.Exists(ctx, key).Result(); err != nil {
+	cooldownKey := "sms:cooldown:login:" + req.Phone
+	reserved, err := s.rdb.SetNX(ctx, cooldownKey, "1", time.Minute).Result()
+	if err != nil {
 		writeError(c, http.StatusServiceUnavailable, "SMS_PROVIDER_ERROR", "短信服务暂时不可用，请稍后再试")
 		return
-	} else if exists > 0 {
+	}
+	if !reserved {
 		writeError(c, http.StatusTooManyRequests, "SMS_TOO_FREQUENT", "验证码发送过于频繁，请稍后再试")
+		return
+	}
+	now := time.Now().In(time.FixedZone("Asia/Shanghai", 8*60*60))
+	date := now.Format("20060102")
+	phoneDailyKey := "sms:daily:phone:" + req.Phone + ":" + date
+	ipDailyKey := "sms:daily:ip:" + hashToken(c.ClientIP()) + ":" + date
+	dailyReserved, err := reserveDailySMS(ctx, s.rdb, phoneDailyKey, ipDailyKey, secondsUntilNextDay(now))
+	if err != nil {
+		_ = s.rdb.Del(ctx, cooldownKey)
+		writeError(c, http.StatusServiceUnavailable, "SMS_PROVIDER_ERROR", "短信服务暂时不可用，请稍后再试")
+		return
+	}
+	if !dailyReserved {
+		_ = s.rdb.Del(ctx, cooldownKey)
+		writeError(c, http.StatusTooManyRequests, "SMS_DAILY_LIMIT", "今日验证码发送次数已达上限")
 		return
 	}
 	code := s.mockCode
 	if code == "" {
 		generated, err := randomDigits(6)
 		if err != nil {
+			_ = s.rdb.Del(ctx, cooldownKey)
+			_ = releaseDailySMS(ctx, s.rdb, phoneDailyKey, ipDailyKey)
 			writeError(c, http.StatusInternalServerError, "SMS_PROVIDER_ERROR", "短信服务暂时不可用，请稍后再试")
 			return
 		}
 		code = generated
 	}
 	if err := s.rdb.Set(ctx, key, hashToken(code), 10*time.Minute).Err(); err != nil {
+		_ = s.rdb.Del(ctx, cooldownKey)
+		_ = releaseDailySMS(ctx, s.rdb, phoneDailyKey, ipDailyKey)
 		writeError(c, http.StatusServiceUnavailable, "SMS_PROVIDER_ERROR", "短信服务暂时不可用，请稍后再试")
 		return
 	}
@@ -175,8 +200,12 @@ func (s *authService) login(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 	defer cancel()
 	key := "sms:login:" + req.Phone
-	stored, err := s.rdb.GetDel(ctx, key).Result()
-	if err == redis.Nil || stored != hashToken(req.Code) {
+	consumed, err := consumeSMSCode(ctx, s.rdb, key, hashToken(req.Code))
+	if err != nil && err != redis.Nil {
+		writeError(c, http.StatusServiceUnavailable, "AUTH_FAILED", "登录服务暂时不可用，请稍后再试")
+		return
+	}
+	if !consumed {
 		writeError(c, http.StatusBadRequest, "INVALID_SMS_CODE", "验证码错误或已过期")
 		return
 	}
@@ -211,6 +240,46 @@ func (s *authService) login(c *gin.Context) {
 	}
 	s.setRefreshCookie(c, refresh)
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"access_token": access, "token_type": "Bearer", "expires_in": int(s.accessTTL.Seconds()), "user": user.response()}, "request_id": c.GetString("request_id")})
+}
+
+func consumeSMSCode(ctx context.Context, rdb *redis.Client, key, expectedHash string) (bool, error) {
+	result, err := rdb.Eval(ctx, `
+		if redis.call('GET', KEYS[1]) == ARGV[1] then
+			redis.call('DEL', KEYS[1])
+			return 1
+		end
+		return 0
+	`, []string{key}, expectedHash).Int()
+	return result == 1, err
+}
+
+func reserveDailySMS(ctx context.Context, rdb *redis.Client, phoneKey, ipKey string, ttlSeconds int64) (bool, error) {
+	result, err := rdb.Eval(ctx, `
+		local phoneCount = tonumber(redis.call('GET', KEYS[1]) or '0')
+		local ipCount = tonumber(redis.call('GET', KEYS[2]) or '0')
+		if phoneCount >= 5 or ipCount >= 10 then return 0 end
+		phoneCount = redis.call('INCR', KEYS[1])
+		ipCount = redis.call('INCR', KEYS[2])
+		if phoneCount == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+		if ipCount == 1 then redis.call('EXPIRE', KEYS[2], ARGV[1]) end
+		return 1
+	`, []string{phoneKey, ipKey}, ttlSeconds).Int()
+	return result == 1, err
+}
+
+func releaseDailySMS(ctx context.Context, rdb *redis.Client, phoneKey, ipKey string) error {
+	return rdb.Eval(ctx, `
+		for _, key in ipairs(KEYS) do
+			local count = tonumber(redis.call('GET', key) or '0')
+			if count > 0 then redis.call('DECR', key) end
+		end
+		return 1
+	`, []string{phoneKey, ipKey}).Err()
+}
+
+func secondsUntilNextDay(now time.Time) int64 {
+	nextDay := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
+	return int64(nextDay.Sub(now).Seconds())
 }
 
 type userRecord struct {
@@ -252,24 +321,42 @@ func (s *authService) refresh(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 	defer cancel()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		writeError(c, http.StatusUnauthorized, "REFRESH_TOKEN_REVOKED", "登录状态已失效，请重新登录")
+		return
+	}
 	var userID int64
 	var expires time.Time
-	err = s.db.QueryRowContext(ctx, "SELECT user_id, expires_at FROM refresh_tokens WHERE token_hash = ? AND revoked_at IS NULL", hashToken(token)).Scan(&userID, &expires)
+	err = tx.QueryRowContext(ctx, "SELECT user_id, expires_at FROM refresh_tokens WHERE token_hash = ? AND revoked_at IS NULL FOR UPDATE", hashToken(token)).Scan(&userID, &expires)
 	if err != nil || time.Now().After(expires) {
+		_ = tx.Rollback()
 		writeError(c, http.StatusUnauthorized, "REFRESH_TOKEN_INVALID", "登录状态已失效，请重新登录")
 		return
 	}
-	if _, err = s.db.ExecContext(ctx, "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP(3) WHERE token_hash = ? AND revoked_at IS NULL", hashToken(token)); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP(3) WHERE token_hash = ? AND revoked_at IS NULL", hashToken(token)); err != nil {
+		_ = tx.Rollback()
 		writeError(c, http.StatusUnauthorized, "REFRESH_TOKEN_REVOKED", "登录状态已失效，请重新登录")
 		return
 	}
 	access, err := s.issueAccessToken(userID)
 	if err != nil {
+		_ = tx.Rollback()
 		writeError(c, http.StatusInternalServerError, "AUTH_FAILED", "登录失败，请稍后再试")
 		return
 	}
-	newToken, err := s.issueRefreshToken(ctx, userID)
+	newToken, err := randomToken(32)
 	if err != nil {
+		_ = tx.Rollback()
+		writeError(c, http.StatusInternalServerError, "AUTH_FAILED", "登录失败，请稍后再试")
+		return
+	}
+	if _, err = tx.ExecContext(ctx, "INSERT INTO refresh_tokens(user_id, token_hash, expires_at) VALUES (?, ?, ?)", userID, hashToken(newToken), time.Now().Add(s.refreshTTL)); err != nil {
+		_ = tx.Rollback()
+		writeError(c, http.StatusInternalServerError, "AUTH_FAILED", "登录失败，请稍后再试")
+		return
+	}
+	if err = tx.Commit(); err != nil {
 		writeError(c, http.StatusInternalServerError, "AUTH_FAILED", "登录失败，请稍后再试")
 		return
 	}

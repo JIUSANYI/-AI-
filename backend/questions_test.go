@@ -24,6 +24,15 @@ func TestPageParamsDefaultsAndBounds(t *testing.T) {
 	}
 }
 
+func TestRedactedQuestionContent(t *testing.T) {
+	if got := visibleQuestionContent("secret", "rejected"); got != "……" {
+		t.Fatalf("rejected content = %q", got)
+	}
+	if got := visibleQuestionContent("normal", "answered"); got != "normal" {
+		t.Fatalf("answered content = %q", got)
+	}
+}
+
 func testContext(req *http.Request) *gin.Context {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
