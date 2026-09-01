@@ -136,7 +136,19 @@ func (s *questionService) create(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "QUESTION_SAVE_FAILED", "问题保存失败，请稍后重试")
 		return
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO answers(question_id, content, model, duration_ms) VALUES (?, ?, ?, ?)", questionID, answer, model, time.Since(started).Milliseconds()); err == nil {
+	var answerID int64
+	if answerResult, insertErr := tx.ExecContext(ctx, "INSERT INTO answers(question_id, content, model, duration_ms) VALUES (?, ?, ?, ?)", questionID, answer, model, time.Since(started).Milliseconds()); insertErr != nil {
+		err = insertErr
+	} else if answerID, err = answerResult.LastInsertId(); err == nil {
+		for _, card := range buildLinkCards(answer) {
+			card = fetchLinkMetadata(ctx, card)
+			_, err = tx.ExecContext(ctx, "INSERT INTO link_cards(answer_id, url, title, description, image_url, media_type, position, site_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", answerID, card.URL, card.Title, card.Description, card.ImageURL, card.MediaType, card.Position, card.SiteName)
+			if err != nil {
+				break
+			}
+		}
+	}
+	if err == nil {
 		_, err = tx.ExecContext(ctx, "UPDATE questions SET status='answered' WHERE id=? AND user_id=?", questionID, userID)
 	}
 	if err != nil {
@@ -241,7 +253,26 @@ func (s *questionService) getQuestion(ctx context.Context, userID, id int64) (gi
 		if err != nil {
 			return nil, err
 		}
-		q["answer"] = gin.H{"content": answer, "model": model, "tokens_used": nullable(tokens), "duration_ms": nullable(duration), "link_cards": []gin.H{}}
+		cards, cardErr := s.db.QueryContext(ctx, "SELECT id, url, title, description, image_url, media_type, position, site_name FROM link_cards WHERE answer_id=(SELECT id FROM answers WHERE question_id=?) ORDER BY position ASC", id)
+		if cardErr != nil {
+			return nil, cardErr
+		}
+		defer cards.Close()
+		linkCards := make([]gin.H, 0)
+		for cards.Next() {
+			var cardID int64
+			var url, mediaType string
+			var title, description, imageURL, siteName sql.NullString
+			var position int
+			if err = cards.Scan(&cardID, &url, &title, &description, &imageURL, &mediaType, &position, &siteName); err != nil {
+				return nil, err
+			}
+			linkCards = append(linkCards, gin.H{"id": cardID, "url": url, "title": nullable(title), "description": nullable(description), "image_url": nullable(imageURL), "media_type": mediaType, "position": position, "site_name": nullable(siteName)})
+		}
+		if err = cards.Err(); err != nil {
+			return nil, err
+		}
+		q["answer"] = gin.H{"content": answer, "model": model, "tokens_used": nullable(tokens), "duration_ms": nullable(duration), "link_cards": linkCards}
 	}
 	return q, nil
 }
