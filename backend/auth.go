@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -62,10 +61,8 @@ func newAuthService(cfg config, db *sql.DB, rdb *redis.Client) (*authService, er
 		return nil, errors.New("JWT_REFRESH_TTL must be a positive duration")
 	}
 	origins := make(map[string]struct{})
-	for _, origin := range strings.Split(os.Getenv("CORS_ORIGINS"), ",") {
-		if origin = strings.TrimSpace(origin); origin != "" {
-			origins[origin] = struct{}{}
-		}
+	for _, origin := range cfg.CORSOrigins {
+		origins[origin] = struct{}{}
 	}
 	sender, mockCode, err := newSMSSenderFromEnv()
 	if err != nil {
@@ -402,8 +399,11 @@ func (s *authService) validCSRF(c *gin.Context) bool {
 		return false
 	}
 	origin := c.GetHeader("Origin")
-	if origin == "" || len(s.allowedOrigin) == 0 {
+	if origin == "" {
 		return true
+	}
+	if len(s.allowedOrigin) == 0 {
+		return false
 	}
 	_, ok := s.allowedOrigin[origin]
 	return ok

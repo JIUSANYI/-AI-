@@ -23,6 +23,38 @@ func TestPhonePattern(t *testing.T) {
 	}
 }
 
+func TestValidCSRFOriginPolicy(t *testing.T) {
+	service := &authService{allowedOrigin: map[string]struct{}{"https://example.com": {}}}
+	for _, tc := range []struct {
+		name   string
+		origin string
+		want   bool
+	}{
+		{name: "same origin request", want: true},
+		{name: "allowed origin", origin: "https://example.com", want: true},
+		{name: "forbidden origin", origin: "https://attacker.example", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testContext(httptest.NewRequest(http.MethodPost, "/auth/refresh", nil))
+			ctx.Request.Header.Set("X-CSRF-Protection", "1")
+			if tc.origin != "" {
+				ctx.Request.Header.Set("Origin", tc.origin)
+			}
+			if got := service.validCSRF(ctx); got != tc.want {
+				t.Fatalf("validCSRF() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+
+	emptyPolicy := &authService{allowedOrigin: map[string]struct{}{}}
+	ctx := testContext(httptest.NewRequest(http.MethodPost, "/auth/refresh", nil))
+	ctx.Request.Header.Set("X-CSRF-Protection", "1")
+	ctx.Request.Header.Set("Origin", "https://example.com")
+	if emptyPolicy.validCSRF(ctx) {
+		t.Fatal("explicit Origin should fail when the allowlist is empty")
+	}
+}
+
 func TestSplitSQLStatements(t *testing.T) {
 	statements := splitSQLStatements("CREATE TABLE a (id INT);\n\nCREATE TABLE b (id INT);\n")
 	if len(statements) != 2 {

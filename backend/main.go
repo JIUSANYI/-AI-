@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"sort"
@@ -32,18 +33,25 @@ type config struct {
 	RedisPass      string
 	RedisDB        string
 	TrustedProxies []string
+	CORSOrigins    []string
 	RequireDeps    bool
 }
 
 func loadConfig() (config, error) {
+	appEnv := getenv("APP_ENV", "dev")
+	corsOrigins, err := parseCORSOrigins(os.Getenv("CORS_ORIGINS"), appEnv)
+	if err != nil {
+		return config{}, err
+	}
 	cfg := config{
-		AppEnv:         getenv("APP_ENV", "dev"),
+		AppEnv:         appEnv,
 		HTTPPort:       getenv("HTTP_PORT", "8080"),
 		MySQLDSN:       os.Getenv("MYSQL_DSN"),
 		RedisAddr:      getenv("REDIS_ADDR", "redis:6379"),
 		RedisPass:      os.Getenv("REDIS_PASSWORD"),
 		RedisDB:        getenv("REDIS_DB", "0"),
 		TrustedProxies: splitCommaSeparated(os.Getenv("TRUSTED_PROXIES")),
+		CORSOrigins:    corsOrigins,
 		RequireDeps:    getenv("REQUIRE_DEPS", "true") == "true",
 	}
 	if cfg.HTTPPort == "" {
@@ -57,6 +65,30 @@ func loadConfig() (config, error) {
 		return config{}, errors.New("REDIS_DB must be a non-negative integer")
 	}
 	return cfg, nil
+}
+
+func parseCORSOrigins(raw, appEnv string) ([]string, error) {
+	origins := splitCommaSeparated(raw)
+	if appEnv == "prod" && len(origins) == 0 {
+		return nil, errors.New("CORS_ORIGINS must not be empty when APP_ENV=prod")
+	}
+	seen := make(map[string]struct{}, len(origins))
+	validated := make([]string, 0, len(origins))
+	for _, origin := range origins {
+		if origin == "*" {
+			return nil, errors.New("CORS_ORIGINS must not contain a wildcard")
+		}
+		parsed, err := url.Parse(origin)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return nil, fmt.Errorf("CORS_ORIGINS contains invalid origin %q", origin)
+		}
+		if _, ok := seen[origin]; ok {
+			continue
+		}
+		seen[origin] = struct{}{}
+		validated = append(validated, origin)
+	}
+	return validated, nil
 }
 
 func splitCommaSeparated(value string) []string {
@@ -121,7 +153,7 @@ func main() {
 		slog.Error("trusted proxy configuration error", "error", err)
 		os.Exit(1)
 	}
-	router.Use(requestID(), gin.Recovery(), accessLog())
+	router.Use(requestID(), gin.Recovery(), accessLog(), securityHeaders(), corsMiddleware(cfg.CORSOrigins))
 	router.GET("/health", healthHandler)
 	router.GET("/ready", readyHandler(db, rdb, cfg.RequireDeps))
 
@@ -165,6 +197,47 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("server stopped unexpectedly", "error", err)
 		os.Exit(1)
+	}
+}
+
+func securityHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		c.Header("Referrer-Policy", "no-referrer")
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Next()
+	}
+}
+
+func corsMiddleware(origins []string) gin.HandlerFunc {
+	allowed := make(map[string]struct{}, len(origins))
+	for _, origin := range origins {
+		allowed[origin] = struct{}{}
+	}
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		if origin == "" {
+			c.Next()
+			return
+		}
+		c.Header("Vary", "Origin")
+		if _, ok := allowed[origin]; !ok {
+			writeError(c, http.StatusForbidden, "ORIGIN_FORBIDDEN", "请求来源不在允许列表中")
+			c.Abort()
+			return
+		}
+		c.Header("Access-Control-Allow-Origin", origin)
+		c.Header("Access-Control-Allow-Credentials", "true")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-CSRF-Protection, X-Request-ID")
+		c.Header("Access-Control-Expose-Headers", "X-Request-ID")
+		c.Header("Access-Control-Max-Age", "600")
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
 	}
 }
 
