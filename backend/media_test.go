@@ -34,6 +34,13 @@ func TestExtractURLsLimitsToFive(t *testing.T) {
 	}
 }
 
+func TestBuildLinkCardsUsesDirectImageAsImageURL(t *testing.T) {
+	cards := buildLinkCards("https://example.com/image.png")
+	if len(cards) != 1 || cards[0].ImageURL == nil || *cards[0].ImageURL != cards[0].URL {
+		t.Fatalf("cards = %#v", cards)
+	}
+}
+
 func TestIsPublicIPRejectsReservedNetworks(t *testing.T) {
 	for _, raw := range []string{"127.0.0.1", "10.0.0.1", "100.64.0.1", "169.254.169.254", "192.0.2.1", "198.18.0.1", "2001:db8::1"} {
 		if isPublicIP(net.ParseIP(raw)) {

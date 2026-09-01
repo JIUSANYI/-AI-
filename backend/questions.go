@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -14,9 +15,10 @@ import (
 )
 
 type questionService struct {
-	db       *sql.DB
-	llm      llmClient
-	moderate moderationClient
+	db              *sql.DB
+	llm             llmClient
+	moderate        moderationClient
+	thumbnailMirror thumbnailMirror
 }
 
 type llmClient interface {
@@ -61,7 +63,11 @@ func newQuestionService(db *sql.DB) (*questionService, error) {
 	if moderation != "mock" {
 		return nil, errors.New("only MODERATION_PROVIDER=mock is implemented")
 	}
-	return &questionService{db: db, llm: llm, moderate: mockModeration{}}, nil
+	mirror, err := newThumbnailMirrorFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	return &questionService{db: db, llm: llm, moderate: mockModeration{}, thumbnailMirror: mirror}, nil
 }
 
 func (s *questionService) registerRoutes(api *gin.RouterGroup, auth *authService) {
@@ -157,13 +163,22 @@ func (s *questionService) create(c *gin.Context) {
 		return
 	}
 	var answerID int64
+	thumbnailTasks := make([]thumbnailTask, 0, len(linkCards))
 	if answerResult, insertErr := tx.ExecContext(ctx, "INSERT INTO answers(question_id, content, model, duration_ms) VALUES (?, ?, ?, ?)", questionID, answer, model, time.Since(started).Milliseconds()); insertErr != nil {
 		err = insertErr
 	} else if answerID, err = answerResult.LastInsertId(); err == nil {
 		for _, card := range linkCards {
-			_, err = tx.ExecContext(ctx, "INSERT INTO link_cards(answer_id, url, title, description, image_url, media_type, position, site_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", answerID, card.URL, card.Title, card.Description, card.ImageURL, card.MediaType, card.Position, card.SiteName)
+			var cardResult sql.Result
+			cardResult, err = tx.ExecContext(ctx, "INSERT INTO link_cards(answer_id, url, title, description, image_url, media_type, position, site_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", answerID, card.URL, card.Title, card.Description, card.ImageURL, card.MediaType, card.Position, card.SiteName)
 			if err != nil {
 				break
+			}
+			if s.thumbnailMirror != nil && card.ImageURL != nil {
+				var cardID int64
+				if cardID, err = cardResult.LastInsertId(); err != nil {
+					break
+				}
+				thumbnailTasks = append(thumbnailTasks, thumbnailTask{cardID: cardID, sourceURL: *card.ImageURL})
 			}
 		}
 	}
@@ -181,12 +196,46 @@ func (s *questionService) create(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "QUESTION_SAVE_FAILED", "问题保存失败，请稍后重试")
 		return
 	}
+	s.scheduleThumbnailMirrors(thumbnailTasks)
 	q, err := s.getQuestion(ctx, userID, questionID)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "QUESTION_SAVE_FAILED", "问题保存失败，请稍后重试")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": q, "request_id": c.GetString("request_id")})
+}
+
+type thumbnailTask struct {
+	cardID    int64
+	sourceURL string
+}
+
+func (s *questionService) scheduleThumbnailMirrors(tasks []thumbnailTask) {
+	if s.thumbnailMirror == nil || len(tasks) == 0 {
+		return
+	}
+	for _, task := range tasks {
+		go s.mirrorThumbnail(task)
+	}
+}
+
+func (s *questionService) mirrorThumbnail(task thumbnailTask) {
+	mirrorCtx, mirrorCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	mirroredURL, err := s.thumbnailMirror.Mirror(mirrorCtx, task.sourceURL)
+	mirrorCancel()
+	if err != nil {
+		slog.Warn("thumbnail mirror failed", "card_id", task.cardID)
+		return
+	}
+	if mirroredURL == "" || len([]rune(mirroredURL)) > maxLinkURLRunes {
+		slog.Warn("thumbnail mirror returned invalid URL", "card_id", task.cardID)
+		return
+	}
+	updateCtx, updateCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer updateCancel()
+	if _, err = s.db.ExecContext(updateCtx, "UPDATE link_cards SET image_url=? WHERE id=? AND image_url=?", mirroredURL, task.cardID, task.sourceURL); err != nil {
+		slog.Warn("thumbnail URL update failed", "card_id", task.cardID)
+	}
 }
 
 func (s *questionService) markQuestionStatus(questionID, userID int64, status string, reason *string) {

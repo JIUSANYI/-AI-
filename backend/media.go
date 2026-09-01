@@ -123,7 +123,11 @@ func buildLinkCards(content string) []linkCard {
 	urls := extractURLs(content)
 	cards := make([]linkCard, 0, len(urls))
 	for i, raw := range urls {
-		cards = append(cards, linkCard{URL: raw, MediaType: mediaType(raw), Position: i + 1})
+		card := linkCard{URL: raw, MediaType: mediaType(raw), Position: i + 1}
+		if card.MediaType == "image" {
+			card.ImageURL = stringPtr(raw)
+		}
+		cards = append(cards, card)
 	}
 	return cards
 }
@@ -144,15 +148,7 @@ func enrichLinkCards(ctx context.Context, cards []linkCard) []linkCard {
 func fetchLinkMetadata(ctx context.Context, card linkCard) linkCard {
 	requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{DialContext: publicDialContext}, CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 3 {
-			return errors.New("too many redirects")
-		}
-		if !isPublicURL(req.URL.String()) {
-			return errors.New("redirect target is not public")
-		}
-		return nil
-	}}
+	client := newPublicHTTPClient(5 * time.Second)
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, card.URL, nil)
 	if err != nil {
 		return card
@@ -197,6 +193,18 @@ func fetchLinkMetadata(ctx context.Context, card linkCard) linkCard {
 		card.MediaType = "image"
 	}
 	return card
+}
+
+func newPublicHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{Timeout: timeout, Transport: &http.Transport{DialContext: publicDialContext}, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 3 {
+			return errors.New("too many redirects")
+		}
+		if !isPublicURL(req.URL.String()) {
+			return errors.New("redirect target is not public")
+		}
+		return nil
+	}}
 }
 
 func truncateRunes(value string, limit int) string {
