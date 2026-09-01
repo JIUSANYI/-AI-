@@ -34,6 +34,7 @@ type authService struct {
 	refreshTTL    time.Duration
 	cookieSecure  bool
 	allowedOrigin map[string]struct{}
+	smsSender     smsSender
 	mockCode      string
 }
 
@@ -48,9 +49,6 @@ type smsCodeRequest struct {
 }
 
 func newAuthService(cfg config, db *sql.DB, rdb *redis.Client) (*authService, error) {
-	if provider := getenv("SMS_PROVIDER", "mock"); provider != "mock" {
-		return nil, errors.New("only SMS_PROVIDER=mock is implemented")
-	}
 	secret := getenv("JWT_SECRET", "")
 	if len(secret) < 32 {
 		return nil, errors.New("JWT_SECRET must contain at least 32 characters")
@@ -69,11 +67,11 @@ func newAuthService(cfg config, db *sql.DB, rdb *redis.Client) (*authService, er
 			origins[origin] = struct{}{}
 		}
 	}
-	mockCode := os.Getenv("SMS_MOCK_CODE")
-	if mockCode != "" && !codePattern.MatchString(mockCode) {
-		return nil, errors.New("SMS_MOCK_CODE must be a 6-digit code when set")
+	sender, mockCode, err := newSMSSenderFromEnv()
+	if err != nil {
+		return nil, err
 	}
-	return &authService{db: db, rdb: rdb, jwtSecret: []byte(secret), accessTTL: accessTTL, refreshTTL: refreshTTL, cookieSecure: cfg.AppEnv == "prod", allowedOrigin: origins, mockCode: mockCode}, nil
+	return &authService{db: db, rdb: rdb, jwtSecret: []byte(secret), accessTTL: accessTTL, refreshTTL: refreshTTL, cookieSecure: cfg.AppEnv == "prod", allowedOrigin: origins, smsSender: sender, mockCode: mockCode}, nil
 }
 
 func (s *authService) registerRoutes(api *gin.RouterGroup) {
@@ -183,7 +181,18 @@ func (s *authService) sendSMSCode(c *gin.Context) {
 		writeError(c, http.StatusServiceUnavailable, "SMS_PROVIDER_ERROR", "短信服务暂时不可用，请稍后再试")
 		return
 	}
-	// Mock mode deliberately does not return or log the code. A real SMS adapter will replace this branch.
+	smsCtx, smsCancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	err = s.smsSender.Send(smsCtx, req.Phone, code)
+	smsCancel()
+	if err != nil {
+		if isDefinitiveSMSSendFailure(err) {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = rollbackSMSReservation(cleanupCtx, s.rdb, key, cooldownKey, phoneDailyKey, ipDailyKey, hashToken(code))
+			cleanupCancel()
+		}
+		writeError(c, http.StatusBadGateway, "SMS_PROVIDER_ERROR", "短信服务暂时不可用，请稍后再试")
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"expires_in": 600, "resend_after": 60}, "request_id": c.GetString("request_id")})
 }
 
@@ -275,6 +284,18 @@ func releaseDailySMS(ctx context.Context, rdb *redis.Client, phoneKey, ipKey str
 		end
 		return 1
 	`, []string{phoneKey, ipKey}).Err()
+}
+
+func rollbackSMSReservation(ctx context.Context, rdb *redis.Client, codeKey, cooldownKey, phoneKey, ipKey, expectedHash string) error {
+	return rdb.Eval(ctx, `
+		if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('DEL', KEYS[1]) end
+		redis.call('DEL', KEYS[2])
+		for index = 3, 4 do
+			local count = tonumber(redis.call('GET', KEYS[index]) or '0')
+			if count > 0 then redis.call('DECR', KEYS[index]) end
+		end
+		return 1
+	`, []string{codeKey, cooldownKey, phoneKey, ipKey}, expectedHash).Err()
 }
 
 func secondsUntilNextDay(now time.Time) int64 {
