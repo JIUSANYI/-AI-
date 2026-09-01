@@ -10,6 +10,7 @@ require (
 	github.com/redis/go-redis/v9 v9.6.3
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.3.171
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/sms v1.3.171
+	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/tms v1.3.159
 	golang.org/x/net v0.55.0
 )
 

@@ -1,0 +1,5 @@
+# One case-sensitive phrase per line. Extend this list for the deployed policy.
+赌博网站
+代开发票
+毒品交易
+枪支购买

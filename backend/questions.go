@@ -6,13 +6,14 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+const questionRequestTimeout = 170 * time.Second
 
 type questionService struct {
 	db              *sql.DB
@@ -34,17 +35,6 @@ func (mockLLM) Answer(_ context.Context, content string) (string, string, error)
 	return "## 回答\n\n这是开发环境的 Mock 回答。你的问题是：" + content, "mock", nil
 }
 
-type mockModeration struct{}
-
-func (mockModeration) Check(_ context.Context, content string) (bool, error) {
-	for _, word := range strings.Fields(os.Getenv("SENSITIVE_WORDS")) {
-		if word != "" && strings.Contains(content, word) {
-			return false, nil
-		}
-	}
-	return true, nil
-}
-
 func newQuestionService(db *sql.DB) (*questionService, error) {
 	provider := getenv("LLM_PROVIDER", "mock")
 	var llm llmClient
@@ -59,15 +49,15 @@ func newQuestionService(db *sql.DB) (*questionService, error) {
 	} else {
 		return nil, errors.New("LLM_PROVIDER must be mock or openai_compatible")
 	}
-	moderation := getenv("MODERATION_PROVIDER", "mock")
-	if moderation != "mock" {
-		return nil, errors.New("only MODERATION_PROVIDER=mock is implemented")
+	moderation, err := newModerationClientFromEnv()
+	if err != nil {
+		return nil, err
 	}
 	mirror, err := newThumbnailMirrorFromEnv()
 	if err != nil {
 		return nil, err
 	}
-	return &questionService{db: db, llm: llm, moderate: mockModeration{}, thumbnailMirror: mirror}, nil
+	return &questionService{db: db, llm: llm, moderate: moderation, thumbnailMirror: mirror}, nil
 }
 
 func (s *questionService) registerRoutes(api *gin.RouterGroup, auth *authService) {
@@ -109,7 +99,7 @@ func (s *questionService) create(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "CONTENT_TOO_LONG", "问题不能超过 2000 个字符")
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), questionRequestTimeout)
 	defer cancel()
 	allowed, err := s.moderate.Check(ctx, req.Content)
 	if err != nil {

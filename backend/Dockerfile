@@ -11,6 +11,7 @@ FROM alpine:3.20
 RUN addgroup -S app && adduser -S -G app app
 WORKDIR /app
 COPY --from=build /out/cs-qa-api /app/cs-qa-api
+COPY sensitive_words.txt /app/sensitive_words.txt
 USER app
 EXPOSE 8080
 ENTRYPOINT ["/app/cs-qa-api"]
