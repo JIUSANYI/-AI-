@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 )
 
 const refreshCookieName = "refresh_token"
+const userIDContextKey = "user_id"
 
 var phonePattern = regexp.MustCompile(`^1[3-9]\d{9}$`)
 var codePattern = regexp.MustCompile(`^\d{6}$`)
@@ -77,6 +79,43 @@ func (s *authService) registerRoutes(api *gin.RouterGroup) {
 	auth.POST("/login", s.login)
 	auth.POST("/refresh", s.refresh)
 	auth.POST("/logout", s.logout)
+}
+
+func (s *authService) requireAccessToken() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		header := strings.TrimSpace(c.GetHeader("Authorization"))
+		parts := strings.SplitN(header, " ", 2)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || strings.TrimSpace(parts[1]) == "" {
+			writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "请先登录")
+			c.Abort()
+			return
+		}
+		token, err := jwt.ParseWithClaims(strings.TrimSpace(parts[1]), &jwt.RegisteredClaims{}, func(token *jwt.Token) (interface{}, error) {
+			if token.Method != jwt.SigningMethodHS256 {
+				return nil, errors.New("unexpected signing method")
+			}
+			return s.jwtSecret, nil
+		})
+		if err != nil || !token.Valid {
+			writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "请先登录")
+			c.Abort()
+			return
+		}
+		claims, ok := token.Claims.(*jwt.RegisteredClaims)
+		if !ok || claims.Subject == "" {
+			writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "请先登录")
+			c.Abort()
+			return
+		}
+		userID, err := strconv.ParseInt(claims.Subject, 10, 64)
+		if err != nil || userID <= 0 {
+			writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "请先登录")
+			c.Abort()
+			return
+		}
+		c.Set(userIDContextKey, userID)
+		c.Next()
+	}
 }
 
 func (s *authService) sendSMSCode(c *gin.Context) {
