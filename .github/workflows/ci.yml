@@ -42,6 +42,26 @@ jobs:
           repo-checkout: false
           cache: false
 
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+
   compose:
     name: Compose validation
     runs-on: ubuntu-latest
@@ -59,7 +79,7 @@ jobs:
 
   deploy-test:
     name: Deploy test environment
-    needs: [backend, compose]
+    needs: [backend, frontend, compose]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' && vars.DEPLOY_ENABLED == 'true' }}
     environment: test
     runs-on: ubuntu-latest
@@ -93,7 +113,7 @@ jobs:
           git pull --ff-only origin develop
           test -f backend/.env.test
           docker compose --env-file backend/.env.test -f deploy/docker-compose.test.yml config >/dev/null
-          docker compose --env-file backend/.env.test -f deploy/docker-compose.test.yml build backend
+          docker compose --env-file backend/.env.test -f deploy/docker-compose.test.yml build frontend backend
           docker compose --env-file backend/.env.test -f deploy/docker-compose.test.yml up -d --remove-orphans
           curl --fail --retry 10 --retry-delay 3 http://127.0.0.1:8081/api/v1/health
           curl --fail --retry 10 --retry-delay 3 http://127.0.0.1:8081/api/v1/ready
@@ -101,7 +121,7 @@ jobs:
 
   deploy-prod:
     name: Deploy production environment
-    needs: [backend, compose]
+    needs: [backend, frontend, compose]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true' }}
     environment: production
     runs-on: ubuntu-latest
@@ -135,7 +155,7 @@ jobs:
           git pull --ff-only origin main
           test -f backend/.env.prod
           docker compose --env-file backend/.env.prod -f deploy/docker-compose.yml config >/dev/null
-          docker compose --env-file backend/.env.prod -f deploy/docker-compose.yml build backend
+          docker compose --env-file backend/.env.prod -f deploy/docker-compose.yml build frontend backend
           docker compose --env-file backend/.env.prod -f deploy/docker-compose.yml up -d --remove-orphans
           curl --fail --retry 10 --retry-delay 3 http://127.0.0.1/api/v1/health
           curl --fail --retry 10 --retry-delay 3 http://127.0.0.1/api/v1/ready
