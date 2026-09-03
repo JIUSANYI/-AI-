@@ -4,7 +4,7 @@
 
 ## 项目状态
 
-- 一期状态：文档基线已完成，进入 M1 项目骨架开发
+- 一期状态：文档基线已完成，进入前后端协同开发（M1）
 - 目标用户：计算机专业学生、在职开发者、计算机爱好者
 - 目标规模：约 10 个注册用户，一期不要求并发和实时输出
 - 部署方式：Docker Compose 单机双环境部署（test / production）
@@ -102,7 +102,7 @@ docker compose config
 
 ## GitHub Actions CI/CD
 
-`.github/workflows/ci.yml` 会在 Pull Request 和推送到 `main`/`develop` 时自动执行后端格式/测试/静态检查以及 Docker Compose 配置校验。当前开发范围仅限后端；前端作为独立运行依赖保留，不由本阶段 CI/CD 修改或重新构建。Go 依赖漏洞扫描目前只做提示；升级依赖前需单独评估兼容性。
+`.github/workflows/ci.yml` 会在 Pull Request 和推送到 `main`/`develop` 时自动执行后端格式/测试/静态检查、前端 lint/build 以及 Docker Compose 配置校验。UI 视觉验收由协作模型按《UI 设计文档》执行。Go 依赖漏洞扫描目前只做提示；升级依赖前需单独评估兼容性。
 
 推送到 `develop` 会在 `test` Environment 中部署测试环境；推送到 `main` 会在 `production` Environment 中部署正式环境。两者都要求仓库变量 `DEPLOY_ENABLED=true`，正式环境还应配置必需的人工审批。部署前述 CI 检查必须全部通过，并需要在对应 GitHub Environment Secrets 中配置：
 
@@ -122,7 +122,7 @@ docker compose config
 
 ## 一期里程碑
 
-`M1 骨架 → M2 认证 → M3 问答 → M4 媒体卡片 → M5 前端 → M6 部署加固`
+`M1 骨架 → M2 认证 → M3 问答 → M4 媒体卡片 → M5 前后端联调与 UI → M6 部署加固`
 
 ## 许可
 

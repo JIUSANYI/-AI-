@@ -1,4 +1,5 @@
 import "./globals.css";
+import { AuthProvider } from "../context/AuthContext";
 
 export const metadata = {
   title: "cs·qa | 把问题交给终端",
@@ -8,8 +9,7 @@ export const metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body><AuthProvider>{children}</AuthProvider></body>
     </html>
   );
 }
-

@@ -7,11 +7,11 @@
 | 编写日期 | 2026-08-30（2026-08-31 修订） |
 | 文档状态 | 已确认，实施中 |
 | 关联文档 | 《需求分析文档》《设计方案》《UI 设计文档》《接口文档》 |
-| 开发模式 | **独立开发**（1 人 + AI 编程助手） |
+| 开发模式 | **前后端协同开发**（本 Agent 负责工程实现，UI 协作模型负责视觉设计与验收） |
 
 ---
 
-## 1. 选型总原则（独立开发视角）
+## 1. 选型总原则（小团队与 AI 协作视角）
 
 所有技术决策服从以下优先级，遇到冲突时序号小者胜：
 
@@ -23,7 +23,7 @@
 | 4 | **2C2G 现实约束** | 一切以单机 2核2G 内存预算（约 900MB 服务内存）为硬边界 |
 | 5 | **可被 AI 辅助** | 主流技术栈 AI 生成代码质量高，冷门技术得不偿失 |
 
-**明确不引入的技术**（独立开发 10 用户规模下属于负资产）：
+**明确不引入的技术**（一期约 10 用户规模下属于负资产）：
 
 - 消息队列（Kafka/RabbitMQ）、微服务/服务网格、Kubernetes
 - GraphQL、tRPC、BFF 层
@@ -63,16 +63,16 @@
 
 ### 2.3 项目内技术约定
 
-| 项 | 约定 |
-|---|---|
-| API 风格 | REST + JSON，统一前缀 `/api/v1`；成功返回 `{data, request_id}`，失败返回 `{error: {code, message}, request_id}` |
-| 分层 | handler（绑定/校验）→ service（业务）→ repo（SQL），单向依赖 |
-| 错误处理 | 自建 `errs` 类型化错误（Code + HTTPStatus + Message），handler 统一渲染 |
-| 迁移 | 版本化 SQL 文件 `go:embed` 进二进制，启动时自动执行 + `schema_migrations` 表记录 |
-| LLM 调用 | 不用任何 OpenAI SDK，自写 ~150 行 OpenAI 兼容协议 HTTP 客户端（标准库即可完成），换厂商零成本 |
-| 链接抓取 | 标准库 `net/http` + `golang.org/x/net/html` 解析 og/meta；自实现 SSRF 内网地址拦截 |
-| 测试 | 优先覆盖 token、验证码、审核降级、SSRF、越权和 media_type 判定；HTTP 关键路径使用 `httptest` |
-| 静态与安全检查 | `go vet` + `golangci-lint`（errcheck/staticcheck/govet）+ `govulncheck ./...` |
+| 项       | 约定                                                                                               |
+| ------- | ------------------------------------------------------------------------------------------------ |
+| API 风格  | REST + JSON，统一前缀 `/api/v1`；成功返回 `{data, request_id}`，失败返回 `{error: {code, message}, request_id}` |
+| 分层      | handler（绑定/校验）→ service（业务）→ repo（SQL），单向依赖                                                      |
+| 错误处理    | 自建 `errs` 类型化错误（Code + HTTPStatus + Message），handler 统一渲染                                        |
+| 迁移      | 版本化 SQL 文件 `go:embed` 进二进制，启动时自动执行 + `schema_migrations` 表记录                                     |
+| LLM 调用  | 不用任何 OpenAI SDK，自写 ~150 行 OpenAI 兼容协议 HTTP 客户端（标准库即可完成），换厂商零成本                                   |
+| 链接抓取    | 标准库 `net/http` + `golang.org/x/net/html` 解析 og/meta；自实现 SSRF 内网地址拦截                              |
+| 测试      | 优先覆盖 token、验证码、审核降级、SSRF、越权和 media_type 判定；HTTP 关键路径使用 `httptest`                                |
+| 静态与安全检查 | `go vet` + `golangci-lint`（errcheck/staticcheck/govet）+ `govulncheck ./...`                      |
 
 ---
 
@@ -83,7 +83,7 @@
 | 项 | 选型 | 版本 | 理由 |
 |---|---|---|---|
 | 框架 | Next.js（App Router） | 14 LTS | 路由/布局/构建一体；`output: standalone` 后 Node 进程 ~250MB，2C2G 可承受 |
-| 语言 | TypeScript | 5.x（strict） | 类型即文档，独立开发防手滑的第一道防线 |
+| 语言 | TypeScript | 5.x（strict） | 类型即文档，减少多模型协作中的接口和实现偏差 |
 | 运行时 | Node.js | 22 LTS | 与 Next.js 14 兼容的长期支持版 |
 
 ### 3.2 依赖清单
@@ -134,13 +134,13 @@
 
 ---
 
-## 6. 开发工具链（独立开发工作流）
+## 6. 开发工具链（前后端协同工作流）
 
 | 环节 | 工具 | 说明 |
 |---|---|---|
 | 密钥管理 | `.env`（gitignore）+ `.env.example`（提交占位） | 所有密钥只进环境变量，永不进库 |
 | 本地依赖 | MySQL/Redis 一律 `docker compose -f docker-compose.dev.yml up` | 本机不装数据库，环境可随时销毁重建 |
-| AI 辅助约定 | 四份设计文档（需求/设计/UI/技术栈）即 AI 的"上下文圣经"，改代码先改文档 | 独立开发 + AI 协作的最大风险是文档漂移，此条为硬纪律 |
+| AI 辅助约定 | 需求/设计/UI/技术栈/接口/交接文档是模型的上下文基线，改代码先改文档 | 多模型协作的最大风险是文档漂移，此条为硬纪律 |
 | 备份 | `mysqldump` 每日凌晨 cron → 服务器本地保留 7 份 | 数据量极小（<10MB/天），暂不上云 |
 
 ### 6.1 Git 版本管理（强制，不可选）
@@ -151,7 +151,7 @@
 |---|---|
 | 仓库结构 | `docs/`（四份设计文档）、`backend/`、`frontend/`、`deploy/`（compose/Dockerfile/nginx 配置） |
 | 远程仓库 | **必配**：GitHub 私有仓库为主选（异地备份 + 断点续传的唯一真身）；网络不稳时备选 Gitee 私有仓库，二者可同时配置双远程 |
-| 分支模型 | `main`（随时可部署的稳定版）+ 短命 `feat/*`、`fix/*` 分支；单人开发不设 PR 评审流程，自审 `git diff` 后自合并 |
+| 分支模型 | `main`（随时可部署的稳定版）+ 短命 `feat/*`、`fix/*` 分支；每个模型完成后自审 `git diff`，再由主负责人合并 |
 | 提交规范 | Conventional Commits：`feat:` `fix:` `chore:` `docs:` `refactor:`；一次提交只做一件事；提交信息由 AI 辅助生成后人工过目 |
 | 提交粒度 | 每完成一个可运行的小步（一个端点、一个组件、一处文档修订）即提交；禁止"攒一周提交一次" |
 | 标签 | 每个里程碑完成打 tag：`v0.1.0-m1`（骨架）→ `v0.2.0-m2`（认证）→ … → `v1.0.0`（上线），语义化版本 |
@@ -212,7 +212,7 @@ Thumbs.db
 | Next.js 大版本升级破坏 App Router 用法 | 锁 14 LTS 不动；项目页面少（4 个），真要升级迁移面小 |
 | 霞鹜文楷子集化流程踩坑 | 备选方案：回退 Noto Sans SC（仅正文观感降级，无功能损失） |
 | 腾讯云 SDK 体积大、API 变动 | SMS/天御调用收敛到独立包内薄封装，Mock 模式常开，SDK 升级只动一处 |
-| 单人断更/弃坑风险 | 六份核心文档 + Conventional Commits + 简洁分层，任何时点可被 AI 或未来的自己接续 |
+| 协作中断风险 | 核心文档 + 交接说明 + Conventional Commits + 简洁分层，任何时点可被其他模型接续 |
 | 2C2G 内存溢出 | 每容器 mem_limit + swap；MySQL 连接池 10；Next standalone；Go 天然省内存 |
 
 ---

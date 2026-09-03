@@ -33,6 +33,26 @@ func TestRedactedQuestionContent(t *testing.T) {
 	}
 }
 
+func TestQuestionListAndDetailHandleUnavailableDB(t *testing.T) {
+	for _, name := range []string{"list", "detail"} {
+		t.Run(name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodGet, "/questions/1", nil)
+			ctx.Set(userIDContextKey, int64(1))
+			service := &questionService{}
+			if name == "list" {
+				service.list(ctx)
+			} else {
+				service.detail(ctx)
+			}
+			if recorder.Code != http.StatusServiceUnavailable {
+				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusServiceUnavailable)
+			}
+		})
+	}
+}
+
 func testContext(req *http.Request) *gin.Context {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())

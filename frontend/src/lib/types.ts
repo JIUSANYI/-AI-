@@ -1,0 +1,9 @@
+export type User = { id: number; phone_masked: string; nickname: string; created_at: string };
+export type LinkCard = { id: number; url: string; title?: string | null; description?: string | null; image_url?: string | null; media_type: "video" | "image" | "link"; position: number; site_name?: string | null };
+export type Answer = { content: string; model?: string | null; tokens_used?: number | null; link_cards: LinkCard[] };
+export type Question = { id: number; content: string; status: "pending" | "answered" | "rejected" | "failed"; rejection_reason?: string | null; created_at: string; answer?: Answer | null };
+export type Pagination = { page: number; size: number; total: number; total_pages: number; has_next: boolean };
+export type ApiEnvelope<T> = { data: T; request_id: string };
+export type ApiError = { error: { code: string; message: string }; request_id?: string };
+export type TokenPayload = { access_token: string; token_type: "Bearer"; expires_in: number };
+export type AuthPayload = TokenPayload & { user: User };

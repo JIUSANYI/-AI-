@@ -240,6 +240,10 @@ func (s *questionService) list(c *gin.Context) {
 		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "请先登录")
 		return
 	}
+	if s.db == nil {
+		writeError(c, http.StatusServiceUnavailable, "QUESTION_QUERY_FAILED", "问题服务暂时不可用，请稍后再试")
+		return
+	}
 	page, size, err := pageParams(c)
 	if err != nil {
 		writeError(c, http.StatusBadRequest, "INVALID_PAGINATION", "分页参数不合法")
@@ -283,6 +287,10 @@ func (s *questionService) detail(c *gin.Context) {
 	userID, ok := currentUserID(c)
 	if !ok {
 		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "请先登录")
+		return
+	}
+	if s.db == nil {
+		writeError(c, http.StatusServiceUnavailable, "QUESTION_QUERY_FAILED", "问题服务暂时不可用，请稍后再试")
 		return
 	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
