@@ -111,7 +111,7 @@ docker compose config
 - `DEPLOY_PORT`：可选，默认 `22`
 - `DEPLOY_SSH_KEY`：对应服务器公钥的 SSH 私钥，多行原文保存
 
-服务器目录分别是 `/home/ubuntu/cs-qa-platform-test` 和 `/home/ubuntu/cs-qa-platform-prod`，并且必须预先配置好 `backend/.env.test` 与 `backend/.env.prod`。工作流使用 `git pull --ff-only`，部署失败不会自动改写服务器上的本地提交或工作区。
+服务器目录分别是 `/home/ubuntu/cs-qa-platform-test` 和 `/home/ubuntu/cs-qa-platform-prod`，并且必须预先配置好 `backend/.env.test` 与 `backend/.env.prod`。工作流在 GitHub Actions 中为目标分支创建完整 Git bundle，经 SSH 上传到服务器后执行 `git fetch` 与 `git merge --ff-only`；因此服务器不需要能够访问 GitHub。服务器工作区不干净或提交不能快进时部署会失败，且不会覆盖本地修改。
 
 ## Git 约定
 

@@ -89,6 +89,9 @@ jobs:
       DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install SSH key
         shell: bash
         run: |
@@ -98,19 +101,29 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/deploy_key"
           chmod 600 "$RUNNER_TEMP/deploy_key"
           ssh-keyscan -p "${DEPLOY_PORT:-22}" -H "$DEPLOY_HOST" >> "$RUNNER_TEMP/known_hosts"
-      - name: Pull, rebuild and smoke test
+      - name: Create deployment bundle
+        shell: bash
+        run: git bundle create "$RUNNER_TEMP/source.bundle" HEAD
+      - name: Transfer, rebuild and smoke test
         shell: bash
         run: |
+          scp -i "$RUNNER_TEMP/deploy_key" \
+            -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o BatchMode=yes \
+            -P "${DEPLOY_PORT:-22}" "$RUNNER_TEMP/source.bundle" \
+            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/csqa-test-${GITHUB_SHA}.bundle"
           ssh -i "$RUNNER_TEMP/deploy_key" \
             -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
             -o StrictHostKeyChecking=yes \
             -o BatchMode=yes \
-            -p "${DEPLOY_PORT:-22}" "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'REMOTE'
+            -p "${DEPLOY_PORT:-22}" "$DEPLOY_USER@$DEPLOY_HOST" "bash -se -- deploy '$GITHUB_SHA'" <<'REMOTE'
           set -euo pipefail
           cd /home/ubuntu/cs-qa-platform-test
-          git fetch origin develop
-          git checkout develop
-          git pull --ff-only origin develop
+          test -z "$(git status --porcelain)"
+          git fetch "/tmp/csqa-test-$1.bundle" HEAD
+          git merge --ff-only FETCH_HEAD
+          rm -f "/tmp/csqa-test-$1.bundle"
           test -f backend/.env.test
           docker compose --env-file backend/.env.test -f deploy/docker-compose.test.yml config >/dev/null
           docker compose --env-file backend/.env.test -f deploy/docker-compose.test.yml build frontend backend
@@ -132,6 +145,9 @@ jobs:
       DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install SSH key
         shell: bash
         run: |
@@ -141,19 +157,29 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/deploy_key"
           chmod 600 "$RUNNER_TEMP/deploy_key"
           ssh-keyscan -p "${DEPLOY_PORT:-22}" -H "$DEPLOY_HOST" >> "$RUNNER_TEMP/known_hosts"
-      - name: Pull, rebuild and smoke test
+      - name: Create deployment bundle
+        shell: bash
+        run: git bundle create "$RUNNER_TEMP/source.bundle" HEAD
+      - name: Transfer, rebuild and smoke test
         shell: bash
         run: |
+          scp -i "$RUNNER_TEMP/deploy_key" \
+            -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o BatchMode=yes \
+            -P "${DEPLOY_PORT:-22}" "$RUNNER_TEMP/source.bundle" \
+            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/csqa-prod-${GITHUB_SHA}.bundle"
           ssh -i "$RUNNER_TEMP/deploy_key" \
             -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" \
             -o StrictHostKeyChecking=yes \
             -o BatchMode=yes \
-            -p "${DEPLOY_PORT:-22}" "$DEPLOY_USER@$DEPLOY_HOST" 'bash -se' <<'REMOTE'
+            -p "${DEPLOY_PORT:-22}" "$DEPLOY_USER@$DEPLOY_HOST" "bash -se -- deploy '$GITHUB_SHA'" <<'REMOTE'
           set -euo pipefail
           cd /home/ubuntu/cs-qa-platform-prod
-          git fetch origin main
-          git checkout main
-          git pull --ff-only origin main
+          test -z "$(git status --porcelain)"
+          git fetch "/tmp/csqa-prod-$1.bundle" HEAD
+          git merge --ff-only FETCH_HEAD
+          rm -f "/tmp/csqa-prod-$1.bundle"
           test -f backend/.env.prod
           docker compose --env-file backend/.env.prod -f deploy/docker-compose.yml config >/dev/null
           docker compose --env-file backend/.env.prod -f deploy/docker-compose.yml build frontend backend
