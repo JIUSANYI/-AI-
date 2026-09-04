@@ -103,7 +103,10 @@ jobs:
           ssh-keyscan -p "${DEPLOY_PORT:-22}" -H "$DEPLOY_HOST" >> "$RUNNER_TEMP/known_hosts"
       - name: Create deployment bundle
         shell: bash
-        run: git bundle create "$RUNNER_TEMP/source.bundle" HEAD
+        run: |
+          git branch codex-deploy-bundle "$GITHUB_SHA"
+          git bundle create "$RUNNER_TEMP/source.bundle" codex-deploy-bundle
+          git branch -D codex-deploy-bundle
       - name: Transfer, rebuild and smoke test
         shell: bash
         run: |
@@ -121,7 +124,7 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/cs-qa-platform-test
           test -z "$(git status --porcelain)"
-          git fetch "/tmp/csqa-test-$1.bundle"
+          git fetch "/tmp/csqa-test-$1.bundle" refs/heads/codex-deploy-bundle
           git merge --ff-only FETCH_HEAD
           rm -f "/tmp/csqa-test-$1.bundle"
           test -f backend/.env.test
@@ -159,7 +162,10 @@ jobs:
           ssh-keyscan -p "${DEPLOY_PORT:-22}" -H "$DEPLOY_HOST" >> "$RUNNER_TEMP/known_hosts"
       - name: Create deployment bundle
         shell: bash
-        run: git bundle create "$RUNNER_TEMP/source.bundle" HEAD
+        run: |
+          git branch codex-deploy-bundle "$GITHUB_SHA"
+          git bundle create "$RUNNER_TEMP/source.bundle" codex-deploy-bundle
+          git branch -D codex-deploy-bundle
       - name: Transfer, rebuild and smoke test
         shell: bash
         run: |
@@ -177,7 +183,7 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/cs-qa-platform-prod
           test -z "$(git status --porcelain)"
-          git fetch "/tmp/csqa-prod-$1.bundle"
+          git fetch "/tmp/csqa-prod-$1.bundle" refs/heads/codex-deploy-bundle
           git merge --ff-only FETCH_HEAD
           rm -f "/tmp/csqa-prod-$1.bundle"
           test -f backend/.env.prod
