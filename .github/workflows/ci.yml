@@ -121,7 +121,7 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/cs-qa-platform-test
           test -z "$(git status --porcelain)"
-          git fetch "/tmp/csqa-test-$1.bundle" HEAD
+          git fetch "/tmp/csqa-test-$1.bundle"
           git merge --ff-only FETCH_HEAD
           rm -f "/tmp/csqa-test-$1.bundle"
           test -f backend/.env.test
@@ -177,7 +177,7 @@ jobs:
           set -euo pipefail
           cd /home/ubuntu/cs-qa-platform-prod
           test -z "$(git status --porcelain)"
-          git fetch "/tmp/csqa-prod-$1.bundle" HEAD
+          git fetch "/tmp/csqa-prod-$1.bundle"
           git merge --ff-only FETCH_HEAD
           rm -f "/tmp/csqa-prod-$1.bundle"
           test -f backend/.env.prod
