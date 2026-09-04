@@ -115,6 +115,7 @@ jobs:
           docker compose --env-file backend/.env.test -f deploy/docker-compose.test.yml config >/dev/null
           docker compose --env-file backend/.env.test -f deploy/docker-compose.test.yml build frontend backend
           docker compose --env-file backend/.env.test -f deploy/docker-compose.test.yml up -d --remove-orphans
+          docker compose --env-file backend/.env.test -f deploy/docker-compose.test.yml up -d --no-deps --force-recreate nginx
           curl --fail --retry 10 --retry-delay 3 http://127.0.0.1:8081/api/v1/health
           curl --fail --retry 10 --retry-delay 3 http://127.0.0.1:8081/api/v1/ready
           REMOTE
@@ -157,6 +158,7 @@ jobs:
           docker compose --env-file backend/.env.prod -f deploy/docker-compose.yml config >/dev/null
           docker compose --env-file backend/.env.prod -f deploy/docker-compose.yml build frontend backend
           docker compose --env-file backend/.env.prod -f deploy/docker-compose.yml up -d --remove-orphans
+          docker compose --env-file backend/.env.prod -f deploy/docker-compose.yml up -d --no-deps --force-recreate nginx
           curl --fail --retry 10 --retry-delay 3 http://127.0.0.1/api/v1/health
           curl --fail --retry 10 --retry-delay 3 http://127.0.0.1/api/v1/ready
           REMOTE
