@@ -163,9 +163,11 @@ func main() {
 	api := router.Group("/api/v1")
 	api.GET("/health", healthHandler)
 	api.GET("/ready", readyHandler(db, rdb, cfg.RequireDeps))
+	var questions *questionService
 	if auth != nil {
 		auth.registerRoutes(api)
-		questions, questionErr := newQuestionService(db, rdb)
+		var questionErr error
+		questions, questionErr = newQuestionService(db, rdb)
 		if questionErr != nil && cfg.RequireDeps {
 			slog.Error("question configuration error", "error", questionErr)
 			os.Exit(1)
@@ -193,6 +195,9 @@ func main() {
 		defer cancel()
 		if err := server.Shutdown(ctx); err != nil {
 			slog.Error("server shutdown failed", "error", err)
+		}
+		if questions != nil {
+			questions.shutdownThumbnailMirrors(ctx)
 		}
 	}()
 

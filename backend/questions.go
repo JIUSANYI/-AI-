@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,6 +26,11 @@ type questionService struct {
 	moderate        moderationClient
 	thumbnailMirror thumbnailMirror
 	rateLimiter     questionRateLimiter
+	thumbnailCtx    context.Context
+	thumbnailCancel context.CancelFunc
+	thumbnailMu     sync.Mutex
+	thumbnailClosed bool
+	thumbnailWG     sync.WaitGroup
 }
 
 type questionRateLimiter interface {
@@ -95,7 +101,8 @@ func newQuestionService(db *sql.DB, rdb *redis.Client) (*questionService, error)
 	if err != nil {
 		return nil, err
 	}
-	return &questionService{db: db, llm: llm, moderate: moderation, thumbnailMirror: mirror, rateLimiter: redisQuestionRateLimiter{rdb: rdb}}, nil
+	thumbnailCtx, thumbnailCancel := context.WithCancel(context.Background())
+	return &questionService{db: db, llm: llm, moderate: moderation, thumbnailMirror: mirror, rateLimiter: redisQuestionRateLimiter{rdb: rdb}, thumbnailCtx: thumbnailCtx, thumbnailCancel: thumbnailCancel}, nil
 }
 
 func (s *questionService) registerRoutes(api *gin.RouterGroup, auth *authService) {
@@ -345,13 +352,27 @@ func (s *questionService) scheduleThumbnailMirrors(tasks []thumbnailTask) {
 	if s.thumbnailMirror == nil || len(tasks) == 0 {
 		return
 	}
+	s.thumbnailMu.Lock()
+	if s.thumbnailClosed {
+		s.thumbnailMu.Unlock()
+		return
+	}
+	s.thumbnailWG.Add(len(tasks))
+	s.thumbnailMu.Unlock()
+	thumbnailCtx := s.thumbnailCtx
+	if thumbnailCtx == nil {
+		thumbnailCtx = context.Background()
+	}
 	for _, task := range tasks {
-		go s.mirrorThumbnail(task)
+		go func(task thumbnailTask) {
+			defer s.thumbnailWG.Done()
+			s.mirrorThumbnail(thumbnailCtx, task)
+		}(task)
 	}
 }
 
-func (s *questionService) mirrorThumbnail(task thumbnailTask) {
-	mirrorCtx, mirrorCancel := context.WithTimeout(context.Background(), 30*time.Second)
+func (s *questionService) mirrorThumbnail(parent context.Context, task thumbnailTask) {
+	mirrorCtx, mirrorCancel := context.WithTimeout(parent, 30*time.Second)
 	mirroredURL, err := s.thumbnailMirror.Mirror(mirrorCtx, task.sourceURL)
 	mirrorCancel()
 	if err != nil {
@@ -366,6 +387,28 @@ func (s *questionService) mirrorThumbnail(task thumbnailTask) {
 	defer updateCancel()
 	if _, err = s.db.ExecContext(updateCtx, "UPDATE link_cards SET image_url=? WHERE id=? AND image_url=?", mirroredURL, task.cardID, task.sourceURL); err != nil {
 		slog.Warn("thumbnail URL update failed", "card_id", task.cardID)
+	}
+}
+
+func (s *questionService) shutdownThumbnailMirrors(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.thumbnailMu.Lock()
+	s.thumbnailClosed = true
+	if s.thumbnailCancel != nil {
+		s.thumbnailCancel()
+	}
+	s.thumbnailMu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		s.thumbnailWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		slog.Warn("thumbnail mirror shutdown timed out")
 	}
 }
 

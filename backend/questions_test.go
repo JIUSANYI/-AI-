@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -71,6 +72,35 @@ type fakeQuestionRateLimiter struct {
 	allowed bool
 	err     error
 	calls   int
+}
+
+type blockingThumbnailMirror struct {
+	started  chan struct{}
+	canceled chan struct{}
+}
+
+func (m *blockingThumbnailMirror) Mirror(ctx context.Context, _ string) (string, error) {
+	close(m.started)
+	<-ctx.Done()
+	close(m.canceled)
+	return "", ctx.Err()
+}
+
+func TestThumbnailMirrorsAreCanceledDuringShutdown(t *testing.T) {
+	thumbnailCtx, thumbnailCancel := context.WithCancel(context.Background())
+	mirror := &blockingThumbnailMirror{started: make(chan struct{}), canceled: make(chan struct{})}
+	service := &questionService{thumbnailMirror: mirror, thumbnailCtx: thumbnailCtx, thumbnailCancel: thumbnailCancel}
+	service.scheduleThumbnailMirrors([]thumbnailTask{{cardID: 1, sourceURL: "https://example.com/image.png"}})
+	<-mirror.started
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
+	defer shutdownCancel()
+	service.shutdownThumbnailMirrors(shutdownCtx)
+	select {
+	case <-mirror.canceled:
+	case <-time.After(time.Second):
+		t.Fatal("thumbnail mirror was not canceled")
+	}
 }
 
 func (f *fakeQuestionRateLimiter) Allow(context.Context, int64, string) (bool, error) {
