@@ -79,6 +79,14 @@ npm run dev
 
 开发期建议使用 `SMS_PROVIDER=mock` 和 `MODERATION_PROVIDER=mock`。Mock 验证码只输出到后端日志，不通过接口返回。
 
+通过 SSH 隧道访问测试环境时，前端开发服务器默认运行在 `http://127.0.0.1:3001`，后端测试配置需要同时允许 `http://127.0.0.1:3001` 和 `http://127.0.0.1:8081`。隧道示例：
+
+```bash
+ssh -N -L 18081:127.0.0.1:8081 ubuntu@<测试服务器>
+```
+
+然后在 `frontend/.env.local` 中设置 `BACKEND_INTERNAL_URL=http://127.0.0.1:18081`。
+
 ## 常用质量检查
 
 ```bash
