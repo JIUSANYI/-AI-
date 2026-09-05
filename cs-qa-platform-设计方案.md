@@ -195,23 +195,24 @@ frontend/
 ```
 POST /questions
   1. 校验长度 1~2000 字
-  2. 审核层1：本地敏感词过滤（拒绝 → status=rejected）
-  3. 审核层2：天御文本审核（拒绝 → status=rejected）
-  4. 插入 questions(status=pending)
-  5. 调用 LLM（超时 120s），system prompt 引导：
+  2. Redis 原子限流：同一用户每小时最多 5 次、同一客户端 IP 每小时最多 20 次（超限返回 429）
+  3. 审核层1：本地敏感词过滤（拒绝 → status=rejected）
+  4. 审核层2：天御文本审核（拒绝 → status=rejected）
+  5. 插入 questions(status=pending)
+  6. 调用 LLM（超时 120s），system prompt 引导：
      - 以 Markdown 回答，结构清晰（定义/对比/示例/小结）
      - **仅当补充资源对理解确有帮助时**，才在末尾输出「参考资源」小节，
        列 0~4 个高质量真实链接（官方文档、权威教程、B站/YouTube 视频）；
        概念解释类简单问题可以不带任何链接
-  6. 若回答中含 URL（最多 4 个）→ 并发抓取 og:title/og:description/og:image/oEmbed
+  7. 若回答中含 URL（最多 4 个）→ 并发抓取 og:title/og:description/og:image/oEmbed
      → 生成 link_cards（可为空）；缩略图异步转存七牛云（未配置则保留原图 URL）
-  7. 事务写入 answers + link_cards，questions.status=answered
-  8. 返回完整结果
+  8. 事务写入 answers + link_cards，questions.status=answered
+  9. 返回完整结果
 ```
 
 **media_type 判定规则**：B站/YouTube 域名 → `video`（前端 iframe 嵌入播放）；og:image 醒目或图片直链（.jpg/.png/.webp）→ `image`；其余 → `link`（标题+缩略图卡片）。
 
-**降级策略**：LLM 超时/失败 → status=failed，返回可重试错误（前端 5xx 自动重试一次）；单链接抓取失败 → 仅保留 URL 纯链接卡片，不阻塞整体回答。
+**降级策略**：LLM 超时/失败 → status=failed，返回可重试错误；前端仅对幂等 GET 在 5xx 时自动重试，POST 提问/重试不自动重放以避免重复调用模型；单链接抓取失败 → 仅保留 URL 纯链接卡片，不阻塞整体回答。
 
 ---
 
@@ -224,7 +225,7 @@ POST /questions
 | /history | 我的提问列表（状态标签：已回答/审核拒绝/失败），分页 |
 | /questions/[id] | 完整问答详情，同提问页的渲染组件 |
 
-**API 客户端规范**：Base URL 走 `NEXT_PUBLIC_API_BASE_URL`；4xx 不重试、5xx 自动重试最多 3 次、网络失败显示离线提示；提问请求前端超时为 135 秒并提示用户查看历史记录；错误统一映射为中文文案；401 触发一次令牌刷新后重放原请求。
+**API 客户端规范**：Base URL 走 `NEXT_PUBLIC_API_BASE_URL`；4xx 不重试、幂等 GET 的 5xx 自动重试最多 3 次，POST 不自动重放；网络失败显示离线提示；提问请求前端超时为 135 秒并提示用户查看历史记录；错误统一映射为中文文案；401 触发一次令牌刷新后重放原请求。
 
 **令牌策略**：访问令牌仅存内存（AuthContext）；刷新令牌在 httpOnly Cookie 中，页面刷新时静默调 /auth/refresh 恢复会话。
 

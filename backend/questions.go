@@ -11,15 +11,53 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
 const questionRequestTimeout = 170 * time.Second
+const questionRateWindow = time.Hour
+const questionUserRateLimit = 5
+const questionIPRateLimit = 20
 
 type questionService struct {
 	db              *sql.DB
 	llm             llmClient
 	moderate        moderationClient
 	thumbnailMirror thumbnailMirror
+	rateLimiter     questionRateLimiter
+}
+
+type questionRateLimiter interface {
+	Allow(context.Context, int64, string) (bool, error)
+}
+
+type redisQuestionRateLimiter struct {
+	rdb *redis.Client
+}
+
+func (l redisQuestionRateLimiter) Allow(ctx context.Context, userID int64, clientIP string) (bool, error) {
+	if l.rdb == nil {
+		return true, nil
+	}
+	bucket := time.Now().Unix() / int64(questionRateWindow.Seconds())
+	userKey := "question:rate:user:" + strconv.FormatInt(userID, 10) + ":" + strconv.FormatInt(bucket, 10)
+	ipKey := "question:rate:ip:" + hashToken(clientIP) + ":" + strconv.FormatInt(bucket, 10)
+	result, err := l.rdb.Eval(ctx, `
+		local user_count = tonumber(redis.call('GET', KEYS[1]) or '0')
+		local ip_count = tonumber(redis.call('GET', KEYS[2]) or '0')
+		if user_count >= tonumber(ARGV[1]) or ip_count >= tonumber(ARGV[2]) then
+			return 0
+		end
+	local new_user_count = redis.call('INCR', KEYS[1])
+	local new_ip_count = redis.call('INCR', KEYS[2])
+	if new_user_count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[3]) end
+	if new_ip_count == 1 then redis.call('EXPIRE', KEYS[2], ARGV[3]) end
+	return 1
+	`, []string{userKey, ipKey}, questionUserRateLimit, questionIPRateLimit, int(questionRateWindow.Seconds())).Int()
+	if err != nil {
+		return false, err
+	}
+	return result == 1, nil
 }
 
 type llmClient interface {
@@ -35,7 +73,7 @@ func (mockLLM) Answer(_ context.Context, content string) (string, string, error)
 	return "## 回答\n\n这是开发环境的 Mock 回答。你的问题是：" + content, "mock", nil
 }
 
-func newQuestionService(db *sql.DB) (*questionService, error) {
+func newQuestionService(db *sql.DB, rdb *redis.Client) (*questionService, error) {
 	provider := getenv("LLM_PROVIDER", "mock")
 	var llm llmClient
 	if provider == "mock" {
@@ -57,7 +95,7 @@ func newQuestionService(db *sql.DB) (*questionService, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &questionService{db: db, llm: llm, moderate: moderation, thumbnailMirror: mirror}, nil
+	return &questionService{db: db, llm: llm, moderate: moderation, thumbnailMirror: mirror, rateLimiter: redisQuestionRateLimiter{rdb: rdb}}, nil
 }
 
 func (s *questionService) registerRoutes(api *gin.RouterGroup, auth *authService) {
@@ -98,6 +136,9 @@ func (s *questionService) create(c *gin.Context) {
 	}
 	if len([]rune(req.Content)) > 2000 {
 		writeError(c, http.StatusBadRequest, "CONTENT_TOO_LONG", "问题不能超过 2000 个字符")
+		return
+	}
+	if !s.allowQuestion(c, userID) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), questionRequestTimeout)
@@ -229,6 +270,9 @@ func (s *questionService) retry(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "QUESTION_QUERY_FAILED", "问题查询失败，请稍后再试")
 		return
 	}
+	if !s.allowQuestion(c, userID) {
+		return
+	}
 	result, err := s.db.ExecContext(ctx, "UPDATE questions SET status='pending', rejection_reason=NULL WHERE id=? AND user_id=? AND status='failed'", questionID, userID)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "QUESTION_SAVE_FAILED", "问题保存失败，请稍后重试")
@@ -253,6 +297,25 @@ func (s *questionService) retry(c *gin.Context) {
 		return
 	}
 	s.answerQuestion(c, ctx, userID, questionID, content)
+}
+
+func (s *questionService) allowQuestion(c *gin.Context, userID int64) bool {
+	if s.rateLimiter == nil {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+	defer cancel()
+	allowed, err := s.rateLimiter.Allow(ctx, userID, c.ClientIP())
+	if err != nil {
+		writeError(c, http.StatusServiceUnavailable, "QUESTION_RATE_LIMIT_UNAVAILABLE", "提问服务暂时不可用，请稍后再试")
+		return false
+	}
+	if !allowed {
+		c.Header("Retry-After", strconv.Itoa(int(questionRateWindow.Seconds())))
+		writeError(c, http.StatusTooManyRequests, "QUESTION_RATE_LIMITED", "提问过于频繁，请稍后再试")
+		return false
+	}
+	return true
 }
 
 type thumbnailTask struct {

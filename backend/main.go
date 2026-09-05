@@ -165,7 +165,7 @@ func main() {
 	api.GET("/ready", readyHandler(db, rdb, cfg.RequireDeps))
 	if auth != nil {
 		auth.registerRoutes(api)
-		questions, questionErr := newQuestionService(db)
+		questions, questionErr := newQuestionService(db, rdb)
 		if questionErr != nil && cfg.RequireDeps {
 			slog.Error("question configuration error", "error", questionErr)
 			os.Exit(1)

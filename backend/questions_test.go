@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -62,6 +64,59 @@ func TestQuestionRetryHandlesUnavailableDB(t *testing.T) {
 	(&questionService{}).retry(ctx)
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusServiceUnavailable)
+	}
+}
+
+type fakeQuestionRateLimiter struct {
+	allowed bool
+	err     error
+	calls   int
+}
+
+func (f *fakeQuestionRateLimiter) Allow(context.Context, int64, string) (bool, error) {
+	f.calls++
+	return f.allowed, f.err
+}
+
+func TestAllowQuestionRejectsRateLimitedRequests(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/questions", nil)
+	limiter := &fakeQuestionRateLimiter{}
+	service := &questionService{rateLimiter: limiter}
+
+	if service.allowQuestion(ctx, 1) {
+		t.Fatal("expected rate-limited request to be rejected")
+	}
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusTooManyRequests)
+	}
+	if recorder.Header().Get("Retry-After") != "3600" {
+		t.Fatalf("Retry-After = %q, want 3600", recorder.Header().Get("Retry-After"))
+	}
+	if limiter.calls != 1 {
+		t.Fatalf("limiter calls = %d, want 1", limiter.calls)
+	}
+}
+
+func TestAllowQuestionFailsClosedWhenRateLimiterUnavailable(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/questions", nil)
+	service := &questionService{rateLimiter: &fakeQuestionRateLimiter{err: errors.New("redis unavailable")}}
+
+	if service.allowQuestion(ctx, 1) {
+		t.Fatal("expected unavailable limiter to reject request")
+	}
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestRedisQuestionRateLimiterAllowsWithoutRedisClient(t *testing.T) {
+	allowed, err := (redisQuestionRateLimiter{}).Allow(context.Background(), 1, "127.0.0.1")
+	if err != nil || !allowed {
+		t.Fatalf("Allow() = (%v, %v), want (true, nil)", allowed, err)
 	}
 }
 
