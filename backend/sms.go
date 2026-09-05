@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 
@@ -77,7 +78,7 @@ func newTencentSMSSenderFromEnv() (smsSender, error) {
 	clientProfile.HttpProfile = httpProfile
 	client, err := tencentsms.NewClient(tencentcommon.NewCredential(secretID, secretKey), region, clientProfile)
 	if err != nil {
-		return nil, errors.New("create Tencent SMS client")
+		return nil, fmt.Errorf("create Tencent SMS client: %w", err)
 	}
 	return &tencentSMSSender{client: client, sdkAppID: sdkAppID, sign: sign, templateID: templateID, includeTTL: templateParams == "code,ttl"}, nil
 }
@@ -94,7 +95,7 @@ func (s *tencentSMSSender) Send(ctx context.Context, phone, code string) error {
 	}
 	response, err := s.client.SendSmsWithContext(ctx, request)
 	if err != nil {
-		return errors.New("Tencent SMS request failed")
+		return fmt.Errorf("Tencent SMS request failed: %w", err)
 	}
 	if response == nil || response.Response == nil || len(response.Response.SendStatusSet) != 1 || response.Response.SendStatusSet[0] == nil || response.Response.SendStatusSet[0].Code == nil {
 		return errors.New("Tencent SMS returned an invalid response")

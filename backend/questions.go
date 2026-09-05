@@ -192,7 +192,9 @@ func (s *questionService) answerQuestion(c *gin.Context, ctx context.Context, us
 		return
 	}
 	s.scheduleThumbnailMirrors(thumbnailTasks)
-	q, err := s.getQuestion(ctx, userID, questionID)
+	queryCtx, queryCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer queryCancel()
+	q, err := s.getQuestion(queryCtx, userID, questionID)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "QUESTION_SAVE_FAILED", "问题保存失败，请稍后重试")
 		return

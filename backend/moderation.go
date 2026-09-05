@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -140,7 +141,7 @@ func newTencentModerationProviderFromEnv() (moderationProvider, error) {
 	clientProfile.HttpProfile = httpProfile
 	client, err := tencenttms.NewClient(tencentcommon.NewCredential(secretID, secretKey), region, clientProfile)
 	if err != nil {
-		return nil, errors.New("create Tencent TMS client")
+		return nil, fmt.Errorf("create Tencent TMS client: %w", err)
 	}
 	return &tencentModerationProvider{client: client, bizType: bizType, timeout: timeout}, nil
 }
@@ -156,6 +157,7 @@ func (p *tencentModerationProvider) Check(ctx context.Context, content string) (
 	defer cancel()
 	response, err := p.client.TextModerationWithContext(requestCtx, request)
 	if err != nil {
+		slog.Warn("Tencent TMS request failed", "error", err)
 		return false, errors.New("Tencent TMS request failed")
 	}
 	if response == nil || response.Response == nil || response.Response.Suggestion == nil {

@@ -25,6 +25,8 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
+const maxRequestIDRunes = 64
+
 type config struct {
 	AppEnv         string
 	HTTPPort       string
@@ -136,6 +138,7 @@ func main() {
 			slog.Error("database migration failed", "error", err)
 			os.Exit(1)
 		}
+		go cleanupExpiredRefreshTokens(context.Background(), db, refreshTokenRetention)
 	}
 	if cfg.RedisAddr != "" {
 		redisDB, _ := strconv.Atoi(cfg.RedisDB)
@@ -177,7 +180,7 @@ func main() {
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      180 * time.Second,
+		WriteTimeout:      240 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
@@ -243,7 +246,7 @@ func corsMiddleware(origins []string) gin.HandlerFunc {
 
 func requestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id := c.GetHeader("X-Request-ID")
+		id := sanitizeRequestID(c.GetHeader("X-Request-ID"))
 		if id == "" {
 			id = fmt.Sprintf("req_%d", time.Now().UnixNano())
 		}
@@ -253,18 +256,36 @@ func requestID() gin.HandlerFunc {
 	}
 }
 
+func sanitizeRequestID(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(raw) > maxRequestIDRunes {
+		return ""
+	}
+	for _, char := range raw {
+		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' {
+			continue
+		}
+		if char != '-' && char != '_' && char != '.' {
+			return ""
+		}
+	}
+	return raw
+}
+
 func accessLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
+		defer func() {
+			requestID, _ := c.Get("request_id")
+			slog.Info("http request",
+				"request_id", requestID,
+				"method", c.Request.Method,
+				"path", c.Request.URL.Path,
+				"status", c.Writer.Status(),
+				"duration_ms", time.Since(start).Milliseconds(),
+			)
+		}()
 		c.Next()
-		requestID, _ := c.Get("request_id")
-		slog.Info("http request",
-			"request_id", requestID,
-			"method", c.Request.Method,
-			"path", c.Request.URL.Path,
-			"status", c.Writer.Status(),
-			"duration_ms", time.Since(start).Milliseconds(),
-		)
 	}
 }
 

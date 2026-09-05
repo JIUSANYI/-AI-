@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -169,7 +170,7 @@ func fetchLinkMetadata(ctx context.Context, card linkCard) linkCard {
 	if len(body) > 1<<20 {
 		return card
 	}
-	metadata := parseMetadata(strings.NewReader(string(body)))
+	metadata := parseMetadata(bytes.NewReader(body))
 	if metadata.title != "" {
 		card.Title = stringPtr(truncateRunes(metadata.title, 512))
 	}

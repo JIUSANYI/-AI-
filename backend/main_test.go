@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -103,5 +104,18 @@ func TestSecurityHeaders(t *testing.T) {
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if rec.Header().Get("X-Content-Type-Options") != "nosniff" || rec.Header().Get("X-Frame-Options") != "DENY" {
 		t.Fatalf("security headers = %#v", rec.Header())
+	}
+}
+
+func TestSanitizeRequestID(t *testing.T) {
+	for _, raw := range []string{"req_123", "trace-id.v1", "A1"} {
+		if got := sanitizeRequestID(raw); got != raw {
+			t.Fatalf("sanitizeRequestID(%q) = %q, want %q", raw, got, raw)
+		}
+	}
+	for _, raw := range []string{"", "bad value", "bad\nvalue", "bad/route", strings.Repeat("a", maxRequestIDRunes+1)} {
+		if got := sanitizeRequestID(raw); got != "" {
+			t.Fatalf("sanitizeRequestID(%q) = %q, want empty", raw, got)
+		}
 	}
 }

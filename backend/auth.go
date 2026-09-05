@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -220,13 +221,15 @@ func (s *authService) login(c *gin.Context) {
 	err = s.db.QueryRowContext(ctx, "SELECT id, phone, nickname, status, created_at FROM users WHERE phone = ?", req.Phone).Scan(&user.ID, &user.Phone, &user.Nickname, &user.Status, &user.CreatedAt)
 	if err == sql.ErrNoRows {
 		user.Nickname = "用户" + req.Phone[len(req.Phone)-4:]
-		result, insertErr := s.db.ExecContext(ctx, "INSERT INTO users(phone, nickname, status) VALUES (?, ?, 'active')", req.Phone, user.Nickname)
+		_, insertErr := s.db.ExecContext(ctx, "INSERT INTO users(phone, nickname, status) VALUES (?, ?, 'active') ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)", req.Phone, user.Nickname)
 		if insertErr != nil {
 			writeError(c, http.StatusInternalServerError, "AUTH_FAILED", "登录失败，请稍后再试")
 			return
 		}
-		user.ID, _ = result.LastInsertId()
-		user.Phone, user.Status, user.CreatedAt = req.Phone, "active", time.Now()
+		if err = s.db.QueryRowContext(ctx, "SELECT id, phone, nickname, status, created_at FROM users WHERE phone = ?", req.Phone).Scan(&user.ID, &user.Phone, &user.Nickname, &user.Status, &user.CreatedAt); err != nil {
+			writeError(c, http.StatusInternalServerError, "AUTH_FAILED", "登录失败，请稍后再试")
+			return
+		}
 	} else if err != nil {
 		writeError(c, http.StatusInternalServerError, "AUTH_FAILED", "登录失败，请稍后再试")
 		return
@@ -464,6 +467,23 @@ func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
+
+const refreshTokenRetention = 7 * 24 * time.Hour
+
+func cleanupExpiredRefreshTokens(ctx context.Context, db *sql.DB, retention time.Duration) {
+	execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	cutoff := time.Now().Add(-retention)
+	result, err := db.ExecContext(execCtx, "DELETE FROM refresh_tokens WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)", cutoff, cutoff)
+	if err != nil {
+		slog.Warn("refresh token cleanup failed", "error", err)
+		return
+	}
+	if removed, rowsErr := result.RowsAffected(); rowsErr == nil && removed > 0 {
+		slog.Info("expired refresh tokens removed", "removed", removed)
+	}
+}
+
 func writeError(c *gin.Context, status int, code, message string) {
 	c.JSON(status, gin.H{"error": gin.H{"code": code, "message": message}, "request_id": c.GetString("request_id")})
 }

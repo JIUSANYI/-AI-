@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   reactStrictMode: true,
   async rewrites() {
     const backend = process.env.BACKEND_INTERNAL_URL ||

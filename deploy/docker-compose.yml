@@ -40,7 +40,7 @@ services:
     mem_limit: 640m
   redis:
     image: redis:7-alpine
-    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 128mb --maxmemory-policy volatile-lru
     volumes:
       - redis_data:/data
     mem_limit: 128m
