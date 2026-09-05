@@ -16,7 +16,7 @@ import (
 	"golang.org/x/net/html"
 )
 
-const maxLinkCards = 5
+const maxLinkCards = 4
 const maxLinkURLRunes = 2048
 const maxLinkDescriptionRunes = 16000
 

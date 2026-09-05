@@ -27,7 +27,7 @@ func TestExtractURLsRejectsPrivateAndLimitsDuplicates(t *testing.T) {
 	}
 }
 
-func TestExtractURLsLimitsToFive(t *testing.T) {
+func TestExtractURLsLimitsToFour(t *testing.T) {
 	content := "https://example.com/1 https://example.com/2 https://example.com/3 https://example.com/4 https://example.com/5 https://example.com/6"
 	if got := len(extractURLs(content)); got != maxLinkCards {
 		t.Fatalf("got %d URLs, want %d", got, maxLinkCards)

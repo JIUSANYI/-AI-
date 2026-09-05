@@ -204,7 +204,7 @@ POST /questions
      - **仅当补充资源对理解确有帮助时**，才在末尾输出「参考资源」小节，
        列 0~4 个高质量真实链接（官方文档、权威教程、B站/YouTube 视频）；
        概念解释类简单问题可以不带任何链接
-  6. 若回答中含 URL（最多 5 个）→ 并发抓取 og:title/og:description/og:image/oEmbed
+  6. 若回答中含 URL（最多 4 个）→ 并发抓取 og:title/og:description/og:image/oEmbed
      → 生成 link_cards（可为空）；缩略图异步转存七牛云（未配置则保留原图 URL）
   7. 事务写入 answers + link_cards，questions.status=answered
   8. 返回完整结果

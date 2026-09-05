@@ -34,14 +34,15 @@ export async function refreshAccessToken(): Promise<string | null> {
   if (!refreshInFlight) refreshInFlight = request<TokenPayload>("/auth/refresh", { method: "POST" }, false).then((data) => { setAccessToken(data.access_token); return data.access_token; }).catch(() => { setAccessToken(null); return null; }).finally(() => { refreshInFlight = null; });
   return refreshInFlight;
 }
+function questionPathSegment(id: number | string) { return encodeURIComponent(String(id)); }
 export const api = {
   sendSmsCode: (phone: string) => request<{ expires_in: number; resend_after: number }>("/auth/sms-code", { method: "POST", body: JSON.stringify({ phone, purpose: "login" }) }),
   login: (phone: string, code: string) => request<AuthPayload>("/auth/login", { method: "POST", body: JSON.stringify({ phone, code }) }),
   logout: () => request<{ logged_out: boolean }>("/auth/logout", { method: "POST" }),
   me: () => request<User>("/auth/me"),
   createQuestion: (content: string) => request<Question>("/questions", { method: "POST", body: JSON.stringify({ content }) }),
-  retryQuestion: (id: number | string) => request<Question>(`/questions/${id}/retry`, { method: "POST" }),
+  retryQuestion: (id: number | string) => request<Question>(`/questions/${questionPathSegment(id)}/retry`, { method: "POST" }),
   listQuestions: (page = 1, size = 20) => request<{ items: Question[]; pagination: Pagination }>(`/questions?page=${page}&size=${size}`),
-  getQuestion: (id: number | string) => request<Question>(`/questions/${id}`),
+  getQuestion: (id: number | string) => request<Question>(`/questions/${questionPathSegment(id)}`),
   health: () => request<{ status: string }>("/health"),
 };
