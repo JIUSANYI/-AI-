@@ -61,7 +61,7 @@ func (l redisQuestionRateLimiter) Allow(ctx context.Context, userID int64, clien
 }
 
 type llmClient interface {
-	Answer(context.Context, string) (string, string, error)
+	Answer(context.Context, string) (string, string, int64, error)
 }
 type moderationClient interface {
 	Check(context.Context, string) (bool, error)
@@ -69,8 +69,8 @@ type moderationClient interface {
 
 type mockLLM struct{}
 
-func (mockLLM) Answer(_ context.Context, content string) (string, string, error) {
-	return "## 回答\n\n这是开发环境的 Mock 回答。你的问题是：" + content, "mock", nil
+func (mockLLM) Answer(_ context.Context, content string) (string, string, int64, error) {
+	return "## 回答\n\n这是开发环境的 Mock 回答。你的问题是：" + content, "mock", 0, nil
 }
 
 func newQuestionService(db *sql.DB, rdb *redis.Client) (*questionService, error) {
@@ -172,7 +172,7 @@ func (s *questionService) create(c *gin.Context) {
 
 func (s *questionService) answerQuestion(c *gin.Context, ctx context.Context, userID, questionID int64, content string) {
 	started := time.Now()
-	answer, model, err := s.llm.Answer(ctx, content)
+	answer, model, tokensUsed, err := s.llm.Answer(ctx, content)
 	if err != nil {
 		s.markQuestionStatus(questionID, userID, "failed", nil)
 		writeError(c, http.StatusBadGateway, "LLM_UNAVAILABLE", "这个问题没有编译成功。网络或模型暂时不可用，请重试。")
@@ -200,7 +200,7 @@ func (s *questionService) answerQuestion(c *gin.Context, ctx context.Context, us
 	}
 	var answerID int64
 	thumbnailTasks := make([]thumbnailTask, 0, len(linkCards))
-	if answerResult, insertErr := tx.ExecContext(ctx, "INSERT INTO answers(question_id, content, model, duration_ms) VALUES (?, ?, ?, ?)", questionID, answer, model, time.Since(started).Milliseconds()); insertErr != nil {
+	if answerResult, insertErr := tx.ExecContext(ctx, "INSERT INTO answers(question_id, content, model, tokens_used, duration_ms) VALUES (?, ?, ?, ?, ?)", questionID, answer, model, nullableTokenCount(tokensUsed), time.Since(started).Milliseconds()); insertErr != nil {
 		err = insertErr
 	} else if answerID, err = answerResult.LastInsertId(); err == nil {
 		for _, card := range linkCards {
@@ -241,6 +241,13 @@ func (s *questionService) answerQuestion(c *gin.Context, ctx context.Context, us
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": q, "request_id": c.GetString("request_id")})
+}
+
+func nullableTokenCount(tokens int64) interface{} {
+	if tokens <= 0 {
+		return nil
+	}
+	return tokens
 }
 
 func (s *questionService) retry(c *gin.Context) {
