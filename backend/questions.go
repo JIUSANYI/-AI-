@@ -267,14 +267,25 @@ func (s *questionService) retry(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), questionRequestTimeout)
 	defer cancel()
-	var content string
-	err = s.db.QueryRowContext(ctx, "SELECT content FROM questions WHERE id=? AND user_id=?", questionID, userID).Scan(&content)
+	var content, status string
+	err = s.db.QueryRowContext(ctx, "SELECT content, status FROM questions WHERE id=? AND user_id=?", questionID, userID).Scan(&content, &status)
 	if err == sql.ErrNoRows {
 		writeError(c, http.StatusNotFound, "QUESTION_NOT_FOUND", "问题不存在")
 		return
 	}
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "QUESTION_QUERY_FAILED", "问题查询失败，请稍后再试")
+		return
+	}
+	// A successful request may have committed before the client lost its response.
+	// Return the existing result so retry remains idempotent for that case.
+	if status == "answered" {
+		q, getErr := s.getQuestion(ctx, userID, questionID)
+		if getErr != nil {
+			writeError(c, http.StatusInternalServerError, "QUESTION_QUERY_FAILED", "问题查询失败，请稍后再试")
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"data": q, "request_id": c.GetString("request_id")})
 		return
 	}
 	if !s.allowQuestion(c, userID) {
