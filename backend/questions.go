@@ -339,7 +339,10 @@ func (s *questionService) list(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "QUESTION_QUERY_FAILED", "问题查询失败，请稍后再试")
 		return
 	}
-	pages := (total + size - 1) / size
+	pages := 0
+	if total > 0 {
+		pages = (total + size - 1) / size
+	}
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"items": items, "pagination": gin.H{"page": page, "size": size, "total": total, "total_pages": pages, "has_next": page < pages}}, "request_id": c.GetString("request_id")})
 }
 

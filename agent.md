@@ -72,7 +72,7 @@ deploy/
 
 后端严格遵循单向分层：`handler（绑定/校验） → service（业务编排） → repository（SQL）`。控制器不放业务逻辑；外部服务通过薄接口封装，便于 Mock 和切换厂商；`main.go` 手工组装依赖，不引入 DI 框架。
 
-数据库迁移使用版本化 SQL，并通过 `go:embed` 打进二进制，启动时执行并写入 `schema_migrations`。数据库使用 InnoDB/utf8mb4。核心表为 `users`、`sms_codes`、`refresh_tokens`、`questions`、`answers`、`link_cards`。
+数据库迁移使用版本化 SQL，并通过 `go:embed` 打进二进制，启动时执行并写入 `schema_migrations`。数据库使用 InnoDB/utf8mb4。当前核心表为 `users`、`refresh_tokens`、`questions`、`answers`、`link_cards`；验证码仅存 Redis，不建立运行时验证码表。历史迁移 `0002_auth.sql` 曾创建 `sms_codes`，`0005_drop_sms_codes.sql` 已清理该遗留表。
 
 ## 5. API 与业务规则
 
@@ -108,7 +108,7 @@ deploy/
 - LLM 超时 120 秒；失败记录 `failed`，给出可重试错误，不返回空白回答
 - 回答审核通过后才可向用户展示和落库为可见回答
 - LLM 仅在确有帮助时输出参考资源，最多 4 个；简单问题允许 0 个
-- 链接最多处理 5 个；仅允许 http/https 公网地址，阻断内网、环回、云元数据等 SSRF 目标；单链接 5 秒超时、限制响应体和重定向次数
+- 链接最多处理 4 个；仅允许 http/https 公网地址，阻断内网、环回、云元数据等 SSRF 目标；单链接 5 秒超时、限制响应体和重定向次数
 - 链接抓取失败不阻塞回答，降级为纯链接；缩略图转存七牛异步执行，未配置或失败时保留原图 URL
 - `answers + link_cards + question.status` 使用事务写入
 

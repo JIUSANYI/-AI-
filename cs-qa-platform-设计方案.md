@@ -112,20 +112,19 @@ frontend/
 
 ## 3. 数据库设计
 
-共 6 张表（InnoDB / utf8mb4）：
+共 5 张运行时表（InnoDB / utf8mb4）：
 
 | 表 | 说明 | 关键字段 |
 |---|---|---|
 | users | 用户 | id, phone(唯一), nickname, status, created_at |
-| sms_codes | 验证码 | phone, code, purpose, expires_at, used |
 | refresh_tokens | 刷新令牌 | user_id, token_hash(SHA-256, 唯一), expires_at, revoked_at |
 | questions | 提问 | user_id, content, status(pending/answered/rejected/failed) |
 | answers | 回答 | question_id(唯一), content(Markdown), model, tokens_used |
 | link_cards | 链接卡片（可空，按需生成） | answer_id, url, title, description, image_url, media_type, position |
 
-索引：`questions(user_id, created_at)`、`link_cards(answer_id)`、`sms_codes(phone)`、`refresh_tokens(user_id)`。
+索引：`questions(user_id, created_at)`、`link_cards(answer_id, position)`、`refresh_tokens(user_id, expires_at)`。
 
-> Redis 用途：验证码发送频率限制（60s/次、5条/天）、IP 限流（10条/天）、刷新令牌吊销加速名单（可选）。
+> Redis 用途：保存验证码哈希（10 分钟 TTL）、验证码发送频率限制（60s/次、5条/天）、IP 限流（10条/天）。验证码不落 MySQL；历史迁移 `0002_auth.sql` 创建过 `sms_codes`，由 `0005_drop_sms_codes.sql` 清理。
 
 ---
 
@@ -185,7 +184,7 @@ frontend/
 输入手机号 → POST /auth/sms-code（Redis 限流校验）
   → 腾讯云 SMS 下发（Mock 模式：日志输出）
 → 输入验证码 → POST /auth/login
-  → 校验 sms_codes（未用/未过期/匹配）→ 无则注册用户
+  → 原子校验并删除 Redis 中的验证码哈希（未过期/匹配）→ 无则注册用户
   → 签发 accessToken（30min，JSON 返回，前端仅存内存）
   → 签发 refreshToken（30天，SHA-256 入库，httpOnly Cookie 下发）
 → 前端 401 时自动 POST /auth/refresh（轮换刷新令牌）重试一次
@@ -225,7 +224,7 @@ POST /questions
 | /history | 我的提问列表（状态标签：已回答/审核拒绝/失败），分页 |
 | /questions/[id] | 完整问答详情，同提问页的渲染组件 |
 
-**API 客户端规范**：Base URL 走 `NEXT_PUBLIC_API_BASE`；4xx 不重试、5xx 自动重试最多 3 次、网络失败显示离线提示；错误统一映射为中文文案；401 触发一次令牌刷新后重放原请求。
+**API 客户端规范**：Base URL 走 `NEXT_PUBLIC_API_BASE_URL`；4xx 不重试、5xx 自动重试最多 3 次、网络失败显示离线提示；提问请求前端超时为 135 秒并提示用户查看历史记录；错误统一映射为中文文案；401 触发一次令牌刷新后重放原请求。
 
 **令牌策略**：访问令牌仅存内存（AuthContext）；刷新令牌在 httpOnly Cookie 中，页面刷新时静默调 /auth/refresh 恢复会话。
 
