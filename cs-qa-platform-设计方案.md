@@ -119,12 +119,12 @@ frontend/
 | users | 用户 | id, phone(唯一), nickname, status, created_at |
 | refresh_tokens | 刷新令牌 | user_id, token_hash(SHA-256, 唯一), expires_at, revoked_at |
 | questions | 提问 | user_id, content, status(pending/answered/rejected/failed) |
-| answers | 回答 | question_id(唯一), content(Markdown), model, tokens_used |
+| answers | 回答 | question_id(唯一), content(Markdown), model, tokens_used, duration_ms |
 | link_cards | 链接卡片（可空，按需生成） | answer_id, url, title, description, image_url, media_type, position |
 
 索引：`questions(user_id, created_at)`、`link_cards(answer_id, position)`、`refresh_tokens(user_id, expires_at)`。
 
-> Redis 用途：保存验证码哈希（10 分钟 TTL）、验证码发送频率限制（60s/次、5条/天）、IP 限流（10条/天）。验证码不落 MySQL；历史迁移 `0002_auth.sql` 创建过 `sms_codes`，由 `0005_drop_sms_codes.sql` 清理。
+> Redis 用途：保存验证码哈希（10 分钟 TTL）、验证码发送频率限制（60s/次、5条/天）、提问限流（同一用户每小时 5 次、同一客户端 IP 每小时 20 次）和刷新令牌吊销状态。验证码不落 MySQL；历史迁移 `0002_auth.sql` 创建过 `sms_codes`，由 `0005_drop_sms_codes.sql` 清理。
 
 ---
 
