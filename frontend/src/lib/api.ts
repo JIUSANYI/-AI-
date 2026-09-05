@@ -1,4 +1,4 @@
-import type { ApiEnvelope, ApiError, AuthPayload, Question, Pagination, TokenPayload } from "./types";
+import type { ApiEnvelope, ApiError, AuthPayload, Question, Pagination, TokenPayload, User } from "./types";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "/api/v1").replace(/\/$/, "");
 let accessToken: string | null = null;
@@ -38,6 +38,7 @@ export const api = {
   sendSmsCode: (phone: string) => request<{ expires_in: number; resend_after: number }>("/auth/sms-code", { method: "POST", body: JSON.stringify({ phone, purpose: "login" }) }),
   login: (phone: string, code: string) => request<AuthPayload>("/auth/login", { method: "POST", body: JSON.stringify({ phone, code }) }),
   logout: () => request<{ logged_out: boolean }>("/auth/logout", { method: "POST" }),
+  me: () => request<User>("/auth/me"),
   createQuestion: (content: string) => request<Question>("/questions", { method: "POST", body: JSON.stringify({ content }) }),
   listQuestions: (page = 1, size = 20) => request<{ items: Question[]; pagination: Pagination }>(`/questions?page=${page}&size=${size}`),
   getQuestion: (id: number | string) => request<Question>(`/questions/${id}`),

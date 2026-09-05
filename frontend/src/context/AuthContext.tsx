@@ -6,7 +6,13 @@ type AuthContextValue = { user: User | null; authenticated: boolean; loading: bo
 const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null); const [authenticated, setAuthenticated] = useState(false); const [loading, setLoading] = useState(true);
-  useEffect(() => { refreshAccessToken().then((token) => setAuthenticated(Boolean(token))).finally(() => setLoading(false)); }, []);
+  useEffect(() => {
+    refreshAccessToken().then(async (token) => {
+      if (!token) return;
+      try { setUser(await api.me()); setAuthenticated(true); }
+      catch { setAccessToken(null); setAuthenticated(false); }
+    }).finally(() => setLoading(false));
+  }, []);
   const value = useMemo<AuthContextValue>(() => ({ user, authenticated, loading, login: async (phone, code) => { const data = await api.login(phone, code); setAccessToken(data.access_token); setUser(data.user); setAuthenticated(true); }, logout: async () => { try { await api.logout(); } finally { setAccessToken(null); setUser(null); setAuthenticated(false); } } }), [user, authenticated, loading]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

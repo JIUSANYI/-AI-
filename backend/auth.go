@@ -77,6 +77,7 @@ func (s *authService) registerRoutes(api *gin.RouterGroup) {
 	auth.POST("/login", s.login)
 	auth.POST("/refresh", s.refresh)
 	auth.POST("/logout", s.logout)
+	auth.GET("/me", s.requireAccessToken(), s.me)
 }
 
 func (s *authService) requireAccessToken() gin.HandlerFunc {
@@ -393,6 +394,34 @@ func (s *authService) logout(c *gin.Context) {
 	}
 	s.clearRefreshCookie(c)
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"logged_out": true}, "request_id": c.GetString("request_id")})
+}
+
+func (s *authService) me(c *gin.Context) {
+	if s.db == nil {
+		writeError(c, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "登录服务暂时不可用，请稍后再试")
+		return
+	}
+	userID, ok := c.Get(userIDContextKey)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "请先登录")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+	defer cancel()
+	var user userRecord
+	if err := s.db.QueryRowContext(ctx, "SELECT id, phone, nickname, status, created_at FROM users WHERE id = ?", userID).Scan(&user.ID, &user.Phone, &user.Nickname, &user.Status, &user.CreatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			writeError(c, http.StatusUnauthorized, "USER_NOT_FOUND", "用户不存在或已失效")
+			return
+		}
+		writeError(c, http.StatusServiceUnavailable, "AUTH_UNAVAILABLE", "登录服务暂时不可用，请稍后再试")
+		return
+	}
+	if user.Status != "active" {
+		writeError(c, http.StatusForbidden, "USER_DISABLED", "当前账号不可用")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": user.response(), "request_id": c.GetString("request_id")})
 }
 func (s *authService) validCSRF(c *gin.Context) bool {
 	if c.GetHeader("X-CSRF-Protection") != "1" {
