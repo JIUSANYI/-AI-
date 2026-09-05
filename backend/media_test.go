@@ -72,3 +72,10 @@ func TestTruncateRunesKeepsShortValue(t *testing.T) {
 		t.Fatalf("truncateRunes() = %q", got)
 	}
 }
+
+func TestLinkDescriptionLimit(t *testing.T) {
+	description := strings.Repeat("字", maxLinkDescriptionRunes+1)
+	if got := truncateRunes(description, maxLinkDescriptionRunes); len([]rune(got)) != maxLinkDescriptionRunes {
+		t.Fatalf("description length = %d, want %d", len([]rune(got)), maxLinkDescriptionRunes)
+	}
+}

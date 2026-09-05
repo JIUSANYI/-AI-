@@ -393,7 +393,10 @@ func (s *authService) logout(c *gin.Context) {
 	if token, err := c.Cookie(refreshCookieName); err == nil && s.db != nil {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 		defer cancel()
-		_, _ = s.db.ExecContext(ctx, "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP(3) WHERE token_hash = ? AND revoked_at IS NULL", hashToken(token))
+		var userID int64
+		if queryErr := s.db.QueryRowContext(ctx, "SELECT user_id FROM refresh_tokens WHERE token_hash = ? LIMIT 1", hashToken(token)).Scan(&userID); queryErr == nil {
+			_, _ = s.db.ExecContext(ctx, "UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP(3) WHERE user_id = ? AND revoked_at IS NULL", userID)
+		}
 	}
 	s.clearRefreshCookie(c)
 	c.JSON(http.StatusOK, gin.H{"data": gin.H{"logged_out": true}, "request_id": c.GetString("request_id")})

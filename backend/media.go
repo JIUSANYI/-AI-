@@ -19,7 +19,7 @@ import (
 
 const maxLinkCards = 4
 const maxLinkURLRunes = 2048
-const maxLinkDescriptionRunes = 16000
+const maxLinkDescriptionRunes = 500
 
 var urlPattern = regexp.MustCompile(`https?://[^\s<>"'` + "`" + `]+`)
 var imageExtensionPattern = regexp.MustCompile(`(?i)\.(?:jpg|jpeg|png|webp|gif)(?:$|[?#])`)

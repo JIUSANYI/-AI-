@@ -63,6 +63,15 @@ func TestLayeredModerationRejectsSensitiveWordBeforeProvider(t *testing.T) {
 	}
 }
 
+func TestLayeredModerationNormalizesSensitiveText(t *testing.T) {
+	provider := &fakeModerationProvider{allowed: true}
+	moderation := &layeredModeration{sensitiveWords: []string{"Blocked"}, provider: provider}
+	allowed, err := moderation.Check(context.Background(), "Ｂ l o c k e d")
+	if err != nil || allowed || provider.calls != 0 {
+		t.Fatalf("allowed = %v, calls = %d, err = %v", allowed, provider.calls, err)
+	}
+}
+
 func TestLayeredModerationFailureModes(t *testing.T) {
 	provider := &fakeModerationProvider{err: errors.New("upstream failed")}
 	moderation := &layeredModeration{provider: provider}

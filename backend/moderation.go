@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	tencentcommon "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common"
 	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/profile"
@@ -73,7 +74,7 @@ func loadSensitiveWords(path, inline string) ([]string, error) {
 	words := make([]string, 0)
 	seen := make(map[string]struct{})
 	add := func(word string) {
-		word = strings.TrimSpace(word)
+		word = normalizeSensitiveText(word)
 		if word == "" || strings.HasPrefix(word, "#") {
 			return
 		}
@@ -107,8 +108,9 @@ func loadSensitiveWords(path, inline string) ([]string, error) {
 }
 
 func (m *layeredModeration) Check(ctx context.Context, content string) (bool, error) {
+	content = normalizeSensitiveText(content)
 	for _, word := range m.sensitiveWords {
-		if strings.Contains(content, word) {
+		if strings.Contains(content, normalizeSensitiveText(word)) {
 			return false, nil
 		}
 	}
@@ -117,6 +119,21 @@ func (m *layeredModeration) Check(ctx context.Context, content string) (bool, er
 		return true, nil
 	}
 	return allowed, err
+}
+
+func normalizeSensitiveText(value string) string {
+	return strings.Map(func(char rune) rune {
+		switch {
+		case unicode.IsSpace(char):
+			return -1
+		case char == '\u3000':
+			return -1
+		case char >= '\uff01' && char <= '\uff5e':
+			return char - ('\uff01' - '!')
+		default:
+			return unicode.ToLower(char)
+		}
+	}, value)
 }
 
 func newTencentModerationProviderFromEnv() (moderationProvider, error) {
