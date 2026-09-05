@@ -40,6 +40,7 @@ export const api = {
   logout: () => request<{ logged_out: boolean }>("/auth/logout", { method: "POST" }),
   me: () => request<User>("/auth/me"),
   createQuestion: (content: string) => request<Question>("/questions", { method: "POST", body: JSON.stringify({ content }) }),
+  retryQuestion: (id: number | string) => request<Question>(`/questions/${id}/retry`, { method: "POST" }),
   listQuestions: (page = 1, size = 20) => request<{ items: Question[]; pagination: Pagination }>(`/questions?page=${page}&size=${size}`),
   getQuestion: (id: number | string) => request<Question>(`/questions/${id}`),
   health: () => request<{ status: string }>("/health"),

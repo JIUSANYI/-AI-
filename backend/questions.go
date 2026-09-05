@@ -63,6 +63,7 @@ func newQuestionService(db *sql.DB) (*questionService, error) {
 func (s *questionService) registerRoutes(api *gin.RouterGroup, auth *authService) {
 	questions := api.Group("/questions", auth.requireAccessToken())
 	questions.POST("", s.create)
+	questions.POST("/:id/retry", s.retry)
 	questions.GET("", s.list)
 	questions.GET("/:id", s.detail)
 }
@@ -125,8 +126,12 @@ func (s *questionService) create(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "QUESTION_SAVE_FAILED", "问题保存失败，请稍后重试")
 		return
 	}
+	s.answerQuestion(c, ctx, userID, questionID, req.Content)
+}
+
+func (s *questionService) answerQuestion(c *gin.Context, ctx context.Context, userID, questionID int64, content string) {
 	started := time.Now()
-	answer, model, err := s.llm.Answer(ctx, req.Content)
+	answer, model, err := s.llm.Answer(ctx, content)
 	if err != nil {
 		s.markQuestionStatus(questionID, userID, "failed", nil)
 		writeError(c, http.StatusBadGateway, "LLM_UNAVAILABLE", "这个问题没有编译成功。网络或模型暂时不可用，请重试。")
@@ -193,6 +198,59 @@ func (s *questionService) create(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": q, "request_id": c.GetString("request_id")})
+}
+
+func (s *questionService) retry(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		writeError(c, http.StatusUnauthorized, "UNAUTHORIZED", "请先登录")
+		return
+	}
+	if s.db == nil {
+		writeError(c, http.StatusServiceUnavailable, "QUESTION_SAVE_FAILED", "问题服务暂时不可用，请稍后再试")
+		return
+	}
+	questionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || questionID <= 0 {
+		writeError(c, http.StatusNotFound, "QUESTION_NOT_FOUND", "问题不存在")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), questionRequestTimeout)
+	defer cancel()
+	var content string
+	err = s.db.QueryRowContext(ctx, "SELECT content FROM questions WHERE id=? AND user_id=?", questionID, userID).Scan(&content)
+	if err == sql.ErrNoRows {
+		writeError(c, http.StatusNotFound, "QUESTION_NOT_FOUND", "问题不存在")
+		return
+	}
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "QUESTION_QUERY_FAILED", "问题查询失败，请稍后再试")
+		return
+	}
+	result, err := s.db.ExecContext(ctx, "UPDATE questions SET status='pending', rejection_reason=NULL WHERE id=? AND user_id=? AND status='failed'", questionID, userID)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "QUESTION_SAVE_FAILED", "问题保存失败，请稍后重试")
+		return
+	}
+	updated, err := result.RowsAffected()
+	if err != nil || updated != 1 {
+		writeError(c, http.StatusConflict, "QUESTION_NOT_RETRYABLE", "当前问题不能重试")
+		return
+	}
+	allowed, err := s.moderate.Check(ctx, content)
+	if err != nil {
+		reason := "moderation_unavailable"
+		s.markQuestionStatus(questionID, userID, "failed", &reason)
+		writeError(c, http.StatusBadGateway, "MODERATION_UNAVAILABLE", "内容审核服务暂时不可用，请稍后再试")
+		return
+	}
+	if !allowed {
+		reason := "policy"
+		s.markQuestionStatus(questionID, userID, "rejected", &reason)
+		writeError(c, http.StatusBadRequest, "CONTENT_REJECTED", "这个问题未通过内容审核，无法回答。")
+		return
+	}
+	s.answerQuestion(c, ctx, userID, questionID, content)
 }
 
 type thumbnailTask struct {
