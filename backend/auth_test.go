@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ func TestValidCSRFOriginPolicy(t *testing.T) {
 		origin string
 		want   bool
 	}{
-		{name: "same origin request", want: true},
+		{name: "missing origin", want: false},
 		{name: "allowed origin", origin: "https://example.com", want: true},
 		{name: "forbidden origin", origin: "https://attacker.example", want: false},
 	} {
@@ -56,9 +57,12 @@ func TestValidCSRFOriginPolicy(t *testing.T) {
 }
 
 func TestSplitSQLStatements(t *testing.T) {
-	statements := splitSQLStatements("CREATE TABLE a (id INT);\n\nCREATE TABLE b (id INT);\n")
+	statements := splitSQLStatements("CREATE TABLE a (name VARCHAR(32) DEFAULT 'a;b'); -- keep;\n/* ignore; */ CREATE TABLE b (id INT);\n")
 	if len(statements) != 2 {
-		t.Fatalf("got %d statements, want 2", len(statements))
+		t.Fatalf("got %d statements, want 2: %#v", len(statements), statements)
+	}
+	if !strings.Contains(statements[0], "'a;b'") || !strings.Contains(statements[1], "CREATE TABLE b") {
+		t.Fatalf("statements were split inside SQL syntax: %#v", statements)
 	}
 }
 

@@ -397,12 +397,62 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 }
 
 func splitSQLStatements(script string) []string {
-	parts := strings.Split(script, ";")
-	statements := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if statement := strings.TrimSpace(part); statement != "" {
+	statements := make([]string, 0)
+	start := 0
+	quote := byte(0)
+	lineComment, blockComment := false, false
+	flush := func(end int) {
+		if statement := strings.TrimSpace(script[start:end]); statement != "" {
 			statements = append(statements, statement)
 		}
+		start = end + 1
+	}
+	for i := 0; i < len(script); i++ {
+		ch := script[i]
+		if lineComment {
+			if ch == '\n' {
+				lineComment = false
+			}
+			continue
+		}
+		if blockComment {
+			if ch == '*' && i+1 < len(script) && script[i+1] == '/' {
+				blockComment = false
+				i++
+			}
+			continue
+		}
+		if quote != 0 {
+			if ch == '\\' && quote != '`' {
+				i++
+				continue
+			}
+			if ch == quote {
+				if i+1 < len(script) && script[i+1] == quote {
+					i++
+					continue
+				}
+				quote = 0
+			}
+			continue
+		}
+		switch {
+		case ch == '\'' || ch == '"' || ch == '`':
+			quote = ch
+		case ch == '#':
+			lineComment = true
+		case ch == '-' && i+2 < len(script) && script[i+1] == '-' && (script[i+2] == ' ' || script[i+2] == '\t' || script[i+2] == '\r' || script[i+2] == '\n'):
+			lineComment = true
+			i++
+		case ch == '/' && i+1 < len(script) && script[i+1] == '*':
+			blockComment = true
+			i++
+		case ch == ';':
+			flush(i)
+		}
+	}
+	if statement := strings.TrimSpace(script[start:]); statement != "" {
+		statements = append(statements, statement)
 	}
 	return statements
 }

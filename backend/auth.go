@@ -435,7 +435,7 @@ func (s *authService) validCSRF(c *gin.Context) bool {
 	}
 	origin := c.GetHeader("Origin")
 	if origin == "" {
-		return true
+		return false
 	}
 	if len(s.allowedOrigin) == 0 {
 		return false
