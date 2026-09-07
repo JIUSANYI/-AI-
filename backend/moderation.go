@@ -129,7 +129,7 @@ func normalizeSensitiveText(value string) string {
 		case char == '\u3000':
 			return -1
 		case char >= '\uff01' && char <= '\uff5e':
-			return char - ('\uff01' - '!')
+			return unicode.ToLower(char - ('\uff01' - '!'))
 		default:
 			return unicode.ToLower(char)
 		}

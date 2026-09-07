@@ -72,6 +72,12 @@ func TestLayeredModerationNormalizesSensitiveText(t *testing.T) {
 	}
 }
 
+func TestNormalizeSensitiveTextLowercasesFullWidthASCII(t *testing.T) {
+	if got := normalizeSensitiveText("ＢLOCKED"); got != "blocked" {
+		t.Fatalf("normalizeSensitiveText() = %q, want %q", got, "blocked")
+	}
+}
+
 func TestLayeredModerationFailureModes(t *testing.T) {
 	provider := &fakeModerationProvider{err: errors.New("upstream failed")}
 	moderation := &layeredModeration{provider: provider}
