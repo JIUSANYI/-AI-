@@ -8,6 +8,8 @@
 # Node / Next.js
 node_modules/
 .next/
+.next-dev/
+.next-live/
 out/
 *.tsbuildinfo
 
@@ -19,6 +21,11 @@ vendor/
 # Runtime and generated files
 *.log
 uploads/
+output/
+.playwright-cli/
+.workbuddy/
+deploy-test.tar.gz
+frontend/.fontsrc/
 
 # IDE / local workspace
 .idea/

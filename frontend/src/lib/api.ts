@@ -21,7 +21,7 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true, at
   catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw new ApiRequestError(408, "REQUEST_TIMEOUT", "请求处理时间较长，请稍后查看历史记录");
     if (attempt < 2 && (init.method || "GET").toUpperCase() === "GET") return request<T>(path, init, retry, attempt + 1, timeoutMs);
-    throw error;
+    throw new ApiRequestError(0, "NETWORK_ERROR", "暂时无法连接服务，请检查网络后重试");
   } finally { globalThis.clearTimeout(timeout); }
   const payload = await response.json().catch(() => ({} as ApiError));
   if (response.status === 401 && retry && !isRefresh && path !== "/auth/logout") {
