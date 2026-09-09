@@ -28,7 +28,7 @@
 | 层 | 技术 |
 |---|---|
 | 后端 | Go 1.22+、Gin、sqlx |
-| 前端 | Node.js 22 LTS、Next.js 14 App Router、TypeScript、Tailwind CSS |
+| 前端 | Node.js 22 LTS、Next.js 15 App Router、TypeScript、Tailwind CSS |
 | 数据 | MySQL 8.0、Redis 7 |
 | 部署 | Nginx、Docker Compose、Ubuntu 24.04 LTS |
 | 外部服务 | OpenAI 兼容协议 LLM、腾讯云 SMS、腾讯云天御、七牛云 Kodo |

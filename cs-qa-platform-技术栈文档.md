@@ -82,9 +82,9 @@
 
 | 项 | 选型 | 版本 | 理由 |
 |---|---|---|---|
-| 框架 | Next.js（App Router） | 14 LTS | 路由/布局/构建一体；`output: standalone` 后 Node 进程 ~250MB，2C2G 可承受 |
+| 框架 | Next.js（App Router） | 15.5.24 | 路由/布局/构建一体；`output: standalone` 后 Node 进程 ~250MB，2C2G 可承受 |
 | 语言 | TypeScript | 5.x（strict） | 类型即文档，减少多模型协作中的接口和实现偏差 |
-| 运行时 | Node.js | 22 LTS | 与 Next.js 14 兼容的长期支持版 |
+| 运行时 | Node.js | 22 LTS | 与 Next.js 15 兼容的长期支持版 |
 
 ### 3.2 依赖清单
 
@@ -182,7 +182,7 @@ Thumbs.db
 
 ```
 语言运行时    Go 1.22+          Node.js 22 LTS
-框架         Gin v1.10          Next.js 14 LTS (App Router)
+框架         Gin v1.10          Next.js 15.5.24 (App Router)
 语言扩展     —                 TypeScript 5 (strict)
 数据         MySQL 8.0          Redis 7
 核心库       sqlx / go-redis9   tailwindcss / swr / react-markdown
@@ -209,7 +209,7 @@ Thumbs.db
 
 | 风险 | 对策 |
 |---|---|
-| Next.js 大版本升级破坏 App Router 用法 | 锁 14 LTS 不动；项目页面少（4 个），真要升级迁移面小 |
+| Next.js 大版本升级破坏 App Router 用法 | 锁定 15.5.24 安全版本；升级前先跑 lint/build 和浏览器冒烟 |
 | 霞鹜文楷子集化流程踩坑 | 备选方案：回退 Noto Sans SC（仅正文观感降级，无功能损失） |
 | 腾讯云 SDK 体积大、API 变动 | SMS/天御调用收敛到独立包内薄封装，Mock 模式常开，SDK 升级只动一处 |
 | 协作中断风险 | 核心文档 + 交接说明 + Conventional Commits + 简洁分层，任何时点可被其他模型接续 |

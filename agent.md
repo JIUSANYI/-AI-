@@ -36,7 +36,7 @@
 ## 3. 技术基线
 
 - 后端：Go 1.22+、Gin 1.10、MySQL 8.0、Redis 7
-- 前端：Node.js 22 LTS、Next.js 14 LTS App Router、TypeScript 5 strict
+- 前端：Node.js 22 LTS、Next.js 15.5.24 App Router、TypeScript 5 strict
 - 前端依赖：Tailwind CSS、SWR、`react-markdown`、`remark-gfm`
 - 后端依赖：`sqlx`、MySQL driver、`go-redis/v9`、`golang-jwt/v5`、腾讯云 SDK、七牛云 SDK；优先使用标准库
 - 部署：Nginx 1.24 + Docker Compose，服务器隔离测试（8081）与正式（80/443）环境，服务为 nginx/frontend/backend/mysql/redis
